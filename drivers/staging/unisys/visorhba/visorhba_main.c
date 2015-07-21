@@ -80,6 +80,8 @@ static struct visor_driver visorhba_driver = {
 	.resume = visorhba_resume,
 	.channel_interrupt = NULL,
 };
+MODULE_DEVICE_TABLE(visorbus, visorhba_channel_types);
+MODULE_ALIAS("visorbus:" SPAR_VHBA_CHANNEL_PROTOCOL_UUID_STR);
 
 struct visor_thread_info {
 	struct task_struct *task;
