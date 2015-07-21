@@ -53,19 +53,13 @@ static void unregister_client_input(struct input_dev *visorinput_dev);
 
 /* GUIDS for all channel types supported by this driver. */
 static struct visor_channeltype_descriptor visorhid_channel_types[] = {
-	{
-		.guid = SPAR_KEYBOARD_CHANNEL_PROTOCOL_UUID,
-		.name = "keyboard"
-	},
-	{
-		.guid = SPAR_MOUSE_CHANNEL_PROTOCOL_UUID,
-		.name = "mouse"
-	},
-	{
-		.guid = NULL_UUID_LE,
-		.name = NULL
-	}
+	{ SPAR_KEYBOARD_CHANNEL_PROTOCOL_UUID, "keyboard"},
+	{ SPAR_MOUSE_CHANNEL_PROTOCOL_UUID, "mouse"},
+	{ NULL_UUID_LE, NULL }
 };
+MODULE_DEVICE_TABLE(visorbus, visorhid_channel_types);
+MODULE_ALIAS("visorbus:" SPAR_MOUSE_CHANNEL_PROTOCOL_UUID_STR);
+MODULE_ALIAS("visorbus:" SPAR_KEYBOARD_CHANNEL_PROTOCOL_UUID_STR);
 
 /** This is used to tell the visor bus driver which types of visor devices
  *  we support, and what functions to call when a visor device that we support
