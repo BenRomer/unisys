@@ -159,6 +159,9 @@ struct visor_device {
 	u32 switch_no;
 	u32 internal_port_no;
 	uuid_le partition_uuid;
+	int irq;
+	int wait_ms;
+	int recv_queue;		/* specifies which queue to receive msgs on */
 };
 
 #define to_visor_device(x) container_of(x, struct visor_device, device)
@@ -176,6 +179,8 @@ int visorbus_clear_channel(struct visor_device *dev,
 			   unsigned long offset, u8 ch, unsigned long nbytes);
 int visorbus_registerdevnode(struct visor_device *dev,
 			     const char *name, int major, int minor);
+int visorbus_register_for_channel_interrupts(struct visor_device *dev,
+					     u32 queue);
 void visorbus_enable_channel_interrupts(struct visor_device *dev);
 void visorbus_disable_channel_interrupts(struct visor_device *dev);
 void visorbus_rearm_channel_interrupts(struct visor_device *dev);

@@ -14,6 +14,8 @@
  * details.
  */
 
+#include <linux/acpi.h>
+#include <linux/interrupt.h>
 #include <linux/uuid.h>
 
 #include "visorbus.h"
@@ -715,13 +717,6 @@ unregister_driver_attributes(struct visor_driver *drv)
 	driver_remove_file(&drv->driver, &drv->version_attr);
 }
 
-visorbus_rearm_channel_interrupts(struct visor_device *dev)
-{
-	if (!visor_periodic_work_nextperiod(dev->periodic_work))
-		put_device(&dev->device);
-}
-EXPORT_SYMBOL_GPL(visorbus_rearm_channel_interrupts);
-
 static void
 dev_periodic_work(void *xdev)
 {
@@ -966,18 +961,62 @@ EXPORT_SYMBOL_GPL(visorbus_registerdevnode);
  *  interrupt function periodically...
  */
 void
+visorbus_rearm_channel_interrupts(struct visor_device *dev)
+{
+	if (dev->irq)
+		visorchannel_set_sig_features(dev->visorchannel,
+					      dev->recv_queue,
+					      ULTRA_CHANNEL_ENABLE_INTS);
+	else if (!visor_periodic_work_nextperiod(dev->periodic_work))
+		put_device(&dev->device);
+}
+EXPORT_SYMBOL_GPL(visorbus_rearm_channel_interrupts);
+
+void
 visorbus_enable_channel_interrupts(struct visor_device *dev)
 {
-	dev_start_periodic_work(dev);
+	if (dev->irq)
+		visorchannel_set_sig_features(dev->visorchannel,
+					      dev->recv_queue,
+					      ULTRA_CHANNEL_ENABLE_INTS);
+	else
+		dev_start_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_enable_channel_interrupts);
 
 void
 visorbus_disable_channel_interrupts(struct visor_device *dev)
 {
-	dev_stop_periodic_work(dev);
+	if (!dev->irq)
+		visorchannel_clear_sig_features(dev->visorchannel,
+						dev->recv_queue,
+						ULTRA_CHANNEL_ENABLE_INTS);
+	else
+		dev_stop_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
+
+static irqreturn_t
+visorbus_isr(int irq, void *dev_id)
+{
+	struct visor_device *dev = (struct visor_device *)dev_id;
+	struct visor_driver *drv = to_visor_driver(dev->device.driver);
+
+	/* Disable the interrupt in hardware for this device.
+	 * When the device is done handling the interrupt, it has
+	 * the responsibility of re-arming the interrupt so the SP
+	 * can send another one.
+	 */
+	visorchannel_clear_sig_features(dev->visorchannel,
+					dev->recv_queue,
+					ULTRA_CHANNEL_ENABLE_INTS);
+	if (drv->channel_interrupt) {
+		drv->channel_interrupt(dev);
+		return IRQ_HANDLED;
+	}
+
+	return IRQ_NONE;
+}
 
 int visorbus_set_channel_features(struct visor_device *dev, u64 feature_bits)
 {
@@ -1034,6 +1073,53 @@ int visorbus_clear_channel_features(struct visor_device *dev, u64 feature_bits)
 	return err;
 }
 
+#define INTERRUPT_VECTOR_MASK 0x3f
+int visorbus_register_for_channel_interrupts(struct visor_device *dev,
+					     u32 queue)
+{
+	int err = 0;
+
+	if (!dev->irq)
+		goto stay_in_polling;
+
+	err = request_irq(dev->irq, visorbus_isr, IRQF_SHARED,
+			  dev_name(&dev->device), dev);
+	if (err < 0) {
+		dev_err(&dev->device,
+			"failed to request irq %d continuing to poll. err = %d",
+			dev->irq, err);
+		goto stay_in_polling;
+	}
+
+	dev_info(&dev->device, "IRQ=%d registered\n", dev->irq);
+
+	err = visorbus_set_channel_features(dev, ULTRA_IO_DRIVER_ENABLES_INTS |
+					    ULTRA_IO_DRIVER_DISABLES_INTS);
+	if (err) {
+		dev_err(&dev->device,
+			"%s failed to set ENALBES ints from chan (%d)\n",
+			__func__, err);
+		goto stay_in_polling;
+	}
+
+	err = visorbus_clear_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING);
+	if (err) {
+		dev_err(&dev->device,
+			"%s failed to clear POOLING flag from chan (%d)\n",
+			__func__, err);
+		goto stay_in_polling;
+	}
+
+	dev->wait_ms = 2000;
+	dev->recv_queue = queue;
+	return 0;
+
+stay_in_polling:
+	dev->irq = 0;
+	return err;
+}
+EXPORT_SYMBOL_GPL(visorbus_register_for_channel_interrupts);
+
 /** This is how everything starts from the device end.
  *  This function is called when a channel first appears via a ControlVM
  *  message.  In response, this function allocates a visor_device to
@@ -1082,6 +1168,20 @@ create_visor_device(struct visor_device *dev)
 	 */
 	dev_set_name(&dev->device, "vbus%u:dev%u",
 		     chipset_bus_no, chipset_dev_no);
+
+	/* Automatically set driver into POLLING mode, if the driver
+	 * wants to use interrupts, it's probe can call
+	 * visorbus_register_for_interrupts.
+	 */
+	rc = visorbus_set_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING |
+					   ULTRA_IO_DRIVER_DISABLES_INTS);
+	if (rc) {
+		dev_err(&dev->device,
+			"%s failed to set channel features for chan (%d)\n",
+			__func__, rc);
+		goto away;
+	}
+	dev->wait_ms = 2;
 
 	/*  device_add does this:
 	 *    bus_add_device(dev)

@@ -1205,6 +1205,7 @@ my_device_create(struct controlvm_message *inmsg)
 	struct visor_device *bus_info;
 	struct visorchannel *visorchannel;
 	int rc = CONTROLVM_RESP_SUCCESS;
+	int gsi_vector;
 
 	bus_info = visorbus_get_device_by_id(bus_no, BUS_ROOT_DEVICE, NULL);
 	if (!bus_info) {
@@ -1237,12 +1238,24 @@ my_device_create(struct controlvm_message *inmsg)
 		goto cleanup;
 	}
 
+	dev_info->device.parent = &bus_info->device;
+
 	dev_info->chipset_bus_no = bus_no;
 	dev_info->chipset_dev_no = dev_no;
 	dev_info->inst = cmd->create_device.dev_inst_uuid;
 
-	/* not sure where the best place to set the 'parent' */
-	dev_info->device.parent = &bus_info->device;
+	gsi_vector = cmd->create_device.intr.recv_irq_handle;
+	if (gsi_vector > 0) {
+		dev_info->irq = acpi_register_gsi(&dev_info->device, gsi_vector,
+						  ACPI_LEVEL_SENSITIVE,
+						  ACPI_ACTIVE_LOW);
+		if (dev_info->irq < 0) {
+			dev_err(&dev_info->device,
+				"Error registering gsi number: %d (%d)",
+				gsi_vector, dev_info->irq);
+			dev_info->irq = 0;
+		}
+	}
 
 	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, dev_no, bus_no,
 			 POSTCODE_SEVERITY_INFO);
