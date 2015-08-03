@@ -1880,10 +1880,11 @@ static int visornic_probe(struct visor_device *dev)
 	netif_napi_add(netdev, &devdata->napi, visornic_poll, NAPI_WEIGHT);
 
 	/*
-	 * Note: Interupts have to be enable before the while
-	 * loop below because the napi routine is responsible for
+	 * Note: Interupts have to be enable before we register
+	 * because the napi routine is responsible for
 	 * setting enab_dis_acked
 	 */
+	visorbus_register_for_channel_interrupts(dev, IOCHAN_FROM_IOPART);
 	visorbus_enable_channel_interrupts(dev);
 
 	err = register_netdev(netdev);
