@@ -43,6 +43,7 @@ static int visornic_pause(struct visor_device *dev,
 			  visorbus_state_complete_func complete_func);
 static int visornic_resume(struct visor_device *dev,
 			   visorbus_state_complete_func complete_func);
+static void visornic_irq(struct visor_device *v);
 
 /* DEBUGFS declarations */
 static ssize_t info_debugfs_read(struct file *file, char __user *buf,
@@ -92,7 +93,7 @@ static struct visor_driver visornic_driver = {
 	.remove = visornic_remove,
 	.pause = visornic_pause,
 	.resume = visornic_resume,
-	.channel_interrupt = NULL,
+	.channel_interrupt = visornic_irq,
 };
 
 struct chanstat {
@@ -190,13 +191,11 @@ struct visornic_devdata {
 
 	int queuefullmsg_logged;
 	struct chanstat chstat;
-	struct timer_list irq_poll_timer;
 	struct napi_struct napi;
 	struct uiscmdrsp cmdrsp[SIZEOF_CMDRSP];
 };
 
 static int visornic_poll(struct napi_struct *napi, int budget);
-static void poll_for_irq(unsigned long v);
 
 /**
  *	visor_copy_fragsinfo_from_skb(
@@ -326,7 +325,7 @@ visornic_serverdown_complete(struct visornic_devdata *devdata)
 	netdev = devdata->netdev;
 
 	/* Stop polling for interrupts */
-	del_timer_sync(&devdata->irq_poll_timer);
+	visorbus_disable_channel_interrupts(devdata->dev);
 
 	rtnl_lock();
 	dev_close(netdev);
@@ -1722,7 +1721,7 @@ static int visornic_poll(struct napi_struct *napi, int budget)
 }
 
 /**
- *	poll_for_irq	- Checks the status of the response queue.
+ *	visornic_irq	- Checks the status of the response queue.
  *	@v: void pointer to the visronic devdata
  *
  *	Main function of the vnic_incoming thread. Peridocially check the
@@ -1730,19 +1729,13 @@ static int visornic_poll(struct napi_struct *napi, int budget)
  *	Returns when thread has stopped.
  */
 static void
-poll_for_irq(unsigned long v)
+visornic_irq(struct visor_device *v)
 {
-	struct visornic_devdata *devdata = (struct visornic_devdata *)v;
+	struct visornic_devdata *devdata = dev_get_drvdata(&v->device);
 
-	if (!visorchannel_signalempty(
-				   devdata->dev->visorchannel,
-				   IOCHAN_FROM_IOPART))
+	if (!visorchannel_signalempty(devdata->dev->visorchannel,
+				      IOCHAN_FROM_IOPART))
 		napi_schedule(&devdata->napi);
-
-	atomic_set(&devdata->interrupt_rcvd, 0);
-
-	mod_timer(&devdata->irq_poll_timer, msecs_to_jiffies(2));
-
 }
 
 /**
@@ -1861,19 +1854,6 @@ static int visornic_probe(struct visor_device *dev)
 		goto cleanup_xmit_cmdrsp;
 	}
 
-	/* TODO: Setup Interrupt information */
-	/* Let's start our threads to get responses */
-	netif_napi_add(netdev, &devdata->napi, visornic_poll, 64);
-
-	setup_timer(&devdata->irq_poll_timer, poll_for_irq,
-		    (unsigned long)devdata);
-	/*
-	 * Note: This time has to start running before the while
-	 * loop below because the napi routine is responsible for
-	 * setting enab_dis_acked
-	 */
-	mod_timer(&devdata->irq_poll_timer, msecs_to_jiffies(2));
-
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  channel_header.features);
 	err = visorbus_read_channel(dev, channel_offset, &features, 8);
@@ -1893,6 +1873,17 @@ static int visornic_probe(struct visor_device *dev)
 			__func__, err);
 		goto cleanup_napi_add;
 	}
+
+	/* TODO: Setup Interrupt information */
+	/* Let's start our threads to get responses */
+	netif_napi_add(netdev, &devdata->napi, visornic_poll, 64);
+
+	/*
+	 * Note: Interupts have to be enable before the while
+	 * loop below because the napi routine is responsible for
+	 * setting enab_dis_acked
+	 */
+	visorbus_enable_channel_interrupts(dev);
 
 	err = register_netdev(netdev);
 	if (err) {
@@ -1920,7 +1911,7 @@ cleanup_register_netdev:
 	unregister_netdev(netdev);
 
 cleanup_napi_add:
-	del_timer_sync(&devdata->irq_poll_timer);
+	visorbus_disable_channel_interrupts(dev);
 	netif_napi_del(&devdata->napi);
 
 cleanup_xmit_cmdrsp:
@@ -1991,7 +1982,7 @@ static void visornic_remove(struct visor_device *dev)
 
 	unregister_netdev(netdev);  /* this will call visornic_close() */
 
-	del_timer_sync(&devdata->irq_poll_timer);
+	visorbus_disable_channel_interrupts(dev);
 	netif_napi_del(&devdata->napi);
 
 	dev_set_drvdata(&dev->device, NULL);
@@ -2067,7 +2058,7 @@ static int visornic_resume(struct visor_device *dev,
 	 * we can start using the device again.
 	 * TODO: State transitions
 	 */
-	mod_timer(&devdata->irq_poll_timer, msecs_to_jiffies(2));
+	visorbus_enable_channel_interrupts(dev);
 
 	init_rcv_bufs(netdev, devdata);
 
