@@ -61,6 +61,30 @@ struct visor_channeltype_descriptor {
 	const char *name;
 };
 
+struct irq_info {
+	u64 reserved1;
+
+	/* specifies interrupt handle. It is used to retrieve the
+	 *   corresponding interrupt pin from Monitor; and the
+	 *   interrupt pin is used to connect to the corresponding
+	 *   interrupt.  Used by IOPart-GP only.
+	 */
+	u64 recv_irq_handle;
+
+	/* specifies interrupt vector. It, interrupt pin, and shared are
+	 *   used to connect to the corresponding interrupt.  Used by
+	 *   IOPart-GP only.
+	 */
+	u32 recv_irq_vector;
+
+	/* specifies if the recvInterrupt is shared.  It, interrupt pin
+	 * and vector are used to connect to 0 = not shared; 1 = shared.
+	 * the corresponding interrupt.  Used by IOPart-GP only.
+	 */
+	u8 recv_irq_shared;
+	u8 reserved[3]; /* Natural alignment purposes */
+};
+
 /** Information provided by each visor driver when it registers with the
  *  visorbus driver.
  */
@@ -159,6 +183,8 @@ struct visor_device {
 	u32 switch_no;
 	u32 internal_port_no;
 	uuid_le partition_uuid;
+	struct timer_list irq_poll_timer;
+	struct irq_info intr;   /* specifies interrupt information */
 };
 
 #define to_visor_device(x) container_of(x, struct visor_device, device)

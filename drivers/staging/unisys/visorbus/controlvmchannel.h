@@ -17,6 +17,7 @@
 
 #include <linux/uuid.h>
 #include "channel.h"
+#include "visorbus.h"
 
 /* {2B3C2D10-7EF5-4ad8-B966-3448B7386B3D} */
 #define SPAR_CONTROLVM_CHANNEL_PROTOCOL_UUID	\
@@ -120,30 +121,6 @@ enum controlvm_id {
 	CONTROLVM_CHIPSET_READY = 0x304,		/* CP --> SP */
 	CONTROLVM_CHIPSET_SELFTEST = 0x305,		/* CP --> SP */
 
-};
-
-struct irq_info {
-	u64 reserved1;
-
-	 /* specifies interrupt handle. It is used to retrieve the
-	  *   corresponding interrupt pin from Monitor; and the
-	  *   interrupt pin is used to connect to the corresponding
-	  *   interrupt.  Used by IOPart-GP only.
-	  */
-	u64 recv_irq_handle;
-
-	 /* specifies interrupt vector. It, interrupt pin, and shared are
-	  *   used to connect to the corresponding interrupt.  Used by
-	  *   IOPart-GP only.
-	  */
-	u32 recv_irq_vector;
-
-    /* specifies if the recvInterrupt is shared.  It, interrupt pin
-     * and vector are used to connect to 0 = not shared; 1 = shared.
-     * the corresponding interrupt.  Used by IOPart-GP only.
-     */
-	u8 recv_irq_shared;
-	u8 reserved[3];	/* Natural alignment purposes */
 };
 
 struct pci_id {
