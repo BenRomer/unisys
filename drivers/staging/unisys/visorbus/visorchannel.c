@@ -20,6 +20,7 @@
  */
 
 #include <linux/uuid.h>
+#include <linux/llist.h>
 
 #include "version.h"
 #include "visorbus.h"
@@ -535,6 +536,45 @@ visorchannel_signalqueue_max_slots(struct visorchannel *channel, u32 queue)
 	return (int)sig_hdr.max_signals;
 }
 EXPORT_SYMBOL_GPL(visorchannel_signalqueue_max_slots);
+
+int
+visorchannel_set_sig_features(struct visorchannel *channel, u32 queue,
+			      u64 features)
+{
+	u64 i;
+	u64 j;
+	u64 *tgt = (u64 *)((u8 *)channel +
+			   SIG_QUEUE_OFFSET(&channel->chan_hdr, queue) +
+			   offsetof(struct signal_queue_header, features));
+
+	j = readq(tgt);
+	do {
+		i = j;
+		j = cmpxchg64(tgt, i, i | features);
+	} while (i != j);
+	return true;
+}
+EXPORT_SYMBOL_GPL(visorchannel_set_sig_features);
+
+int
+visorchannel_clear_sig_features(struct visorchannel *channel, u32 queue,
+				u64 features)
+{
+	u64 i;
+	u64 j;
+	u64 *tgt = (u64 *)((u8 *)channel +
+			   SIG_QUEUE_OFFSET(&channel->chan_hdr, queue) +
+			   offsetof(struct signal_queue_header, features));
+
+	j = readq(tgt);
+	do {
+		i = j;
+		j = cmpxchg64(tgt, i, i & ~features);
+	} while (i != j);
+
+	return true;
+}
+EXPORT_SYMBOL_GPL(visorchannel_clear_sig_features);
 
 static void
 sigqueue_debug(struct signal_queue_header *q, int which, struct seq_file *seq)

@@ -14,6 +14,7 @@
  * details.
  */
 
+#include <linux/interrupt.h>
 #include <linux/uuid.h>
 
 #include "visorbus.h"
@@ -951,6 +952,73 @@ visorbus_disable_channel_interrupts(struct visor_device *dev)
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 
+static irqreturn_t
+visorbus_isr(int irq, void *dev_id)
+{
+	struct visor_device *dev = (struct visor_device *)dev_id;
+	struct visor_driver *drv = to_visor_driver(dev->device.driver);
+
+	visorchannel_clear_sig_features(dev->visorchannel, 1,
+					ULTRA_CHANNEL_ENABLE_INTS);
+	if (drv->channel_interrupt) {
+		drv->channel_interrupt(dev);
+		return IRQ_HANDLED;
+	}
+
+	return IRQ_NONE;
+}
+
+int visorbus_rearm_interrupts(struct visor_device *dev)
+{
+	return visorchannel_set_sig_features(dev->visorchannel, 1,
+					     ULTRA_CHANNEL_ENABLE_INTS);
+}
+EXPORT_SYMBOL_GPL(visorbus_rearm_interrupts);
+
+#define INTERRUPT_VECTOR_MASK 0x3f
+int visorbus_register_for_interrupts(struct visor_device *dev, u32 queue,
+				     u64 channel_flags)
+{
+	int channel_offset = 0, err = 0;
+	u64 features, mask;
+	int int_vector;
+
+	int_vector = dev->intr.recv_irq_handle & INTERRUPT_VECTOR_MASK;
+
+	err = request_irq(int_vector, visorbus_isr, IRQF_SHARED,
+			  dev->name, dev);
+	if (err < 0)
+		return err;
+
+	channel_offset = offsetof(struct channel_header,
+				  features);
+	err = visorbus_read_channel(dev, channel_offset, &features, 8);
+	if (err) {
+		dev_err(&dev->device,
+			"%s failed to get features from chan (%d)\n",
+			__func__, err);
+		return err;
+	}
+	if ((features & ULTRA_IO_IOVM_IS_OK_WITH_DRIVER_DISABLING_INTS) == 0)
+		return -EINVAL;
+
+	mask = ~(ULTRA_IO_CHANNEL_IS_POLLING | ULTRA_IO_DRIVER_DISABLES_INTS |
+		 channel_flags);
+	features &= mask;
+	features |= (ULTRA_IO_DRIVER_ENABLES_INTS | channel_flags);
+
+	err = visorbus_write_channel(dev, channel_offset, &features, 8);
+	if (err) {
+		dev_err(&dev->device,
+			"%s failed to get features from chan (%d)\n",
+			__func__, err);
+		return err;
+	}
+
+	dev->wait_ms = 2000;
+	return 0;
+}
+
 /** This is how everything starts from the device end.
  *  This function is called when a channel first appears via a ControlVM
  *  message.  In response, this function allocates a visor_device to
@@ -971,6 +1039,8 @@ create_visor_device(struct visor_device *dev)
 	int rc = -1;
 	u32 chipset_bus_no = dev->chipset_bus_no;
 	u32 chipset_dev_no = dev->chipset_dev_no;
+	int channel_offset = 0;
+	u64 features;
 
 	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, chipset_dev_no, chipset_bus_no,
 			 POSTCODE_SEVERITY_INFO);
@@ -999,6 +1069,29 @@ create_visor_device(struct visor_device *dev)
 	 */
 	dev_set_name(&dev->device, "vbus%u:dev%u",
 		     chipset_bus_no, chipset_dev_no);
+
+	/* Automatically set driver into POLLING mode, if the driver
+	 * wants to use interrupts, it's probe can call
+	 * visorbus_register_for_interrupts.
+	 */
+	channel_offset = offsetof(struct channel_header,
+				  features);
+	rc = visorbus_read_channel(dev, channel_offset, &features, 8);
+	if (rc) {
+		dev_err(&dev->device,
+			"%s failed to get features from chan (%d)\n",
+			__func__, rc);
+		goto away;
+	}
+	features |= ULTRA_IO_CHANNEL_IS_POLLING;
+	rc = visorbus_write_channel(dev, channel_offset, &features, 8);
+	if (rc) {
+		dev_err(&dev->device,
+			"%s failed to get features from chan (%d)\n",
+			__func__, rc);
+		goto away;
+	}
+	dev->wait_ms = 2;
 
 	/*  device_add does this:
 	 *    bus_add_device(dev)
