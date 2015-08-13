@@ -182,6 +182,8 @@ static unsigned char visorkbd_keycode[256] = {	/* American layout */
 	[81] = KEY_KP3,
 	[82] = KEY_KP0,
 	[83] = KEY_KPDOT,
+	[86] = KEY_102ND, /* enables UK backslash+pipe key,
+			   * and FR lessthan+greaterthan key */
 	[87] = KEY_F11,
 	[88] = KEY_F12,
 	[90] = KEY_KPLEFTPAREN,
