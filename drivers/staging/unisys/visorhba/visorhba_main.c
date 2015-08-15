@@ -136,6 +136,7 @@ struct visorhba_devdata {
 	int devnum;
 	struct visor_thread_info threadinfo;
 	int thread_wait_ms;
+	struct timer_list irq_poll_timer;
 };
 
 struct visorhba_devices_open {
@@ -160,11 +161,10 @@ static struct visorhba_devices_open visorhbas_open[VISORHBA_OPEN_MAX];
  *
  *	Return 0 on success;
  */
-static int visor_thread_start(struct visor_thread_info *thrinfo,
+/* static int visor_thread_start(struct visor_thread_info *thrinfo,
 			      int (*threadfn)(void *),
 			      void *thrcontext, char *name)
 {
-	/* used to stop the thread */
 	init_completion(&thrinfo->has_stopped);
 	thrinfo->task = kthread_run(threadfn, thrcontext, name);
 	if (IS_ERR(thrinfo->task)) {
@@ -175,6 +175,7 @@ static int visor_thread_start(struct visor_thread_info *thrinfo,
 	return 0;
 }
 
+*/
 /**
  *	add_scsipending_entry - save off io command that is pending in
  *				Service Partition
@@ -687,7 +688,7 @@ static void visorhba_serverdown_complete(struct visorhba_devdata *devdata)
 	/* Stop using the IOVM response queue (queue should be drained
 	 * by the end)
 	 */
-	kthread_stop(devdata->threadinfo.task);
+	del_timer_sync(&devdata->irq_poll_timer);
 
 	/* Fail commands that weren't completed */
 	spin_lock_irqsave(&devdata->privlock, flags);
@@ -1009,28 +1010,26 @@ drain_queue(struct uiscmdrsp *cmdrsp, struct visorhba_devdata *devdata)
  *	from the IO Service Partition. When the queue is empty, wait
  *	to check to see if it is full again.
  */
-static int process_incoming_rsps(void *v)
+static void process_incoming_rsps(unsigned long v)
 {
-	struct visorhba_devdata *devdata = v;
+	struct visorhba_devdata *devdata = (struct visorhba_devdata *)v;
 	struct uiscmdrsp *cmdrsp = NULL;
 	const int size = sizeof(*cmdrsp);
 
 	cmdrsp = kmalloc(size, GFP_ATOMIC);
-	if (!cmdrsp)
-		return -ENOMEM;
-
-	while (1) {
-		if (kthread_should_stop())
-			break;
-		wait_event_interruptible_timeout(
-			devdata->rsp_queue, (atomic_read(
-					     &devdata->interrupt_rcvd) == 1),
-				msecs_to_jiffies(devdata->thread_wait_ms));
-		/* drain queue */
-		drain_queue(cmdrsp, devdata);
+	if (!cmdrsp) {
+		mod_timer(&devdata->irq_poll_timer,
+			  msecs_to_jiffies(devdata->thread_wait_ms));
+		return;
 	}
+
+	/* drain queue */
+	drain_queue(cmdrsp, devdata);
+
 	kfree(cmdrsp);
-	return 0;
+	mod_timer(&devdata->irq_poll_timer,
+		  msecs_to_jiffies(devdata->thread_wait_ms));
+	return;
 }
 
 /**
@@ -1074,8 +1073,10 @@ static int visorhba_resume(struct visor_device *dev,
 	if (devdata->serverdown && !devdata->serverchangingstate)
 		devdata->serverchangingstate = 1;
 
-	visor_thread_start(&devdata->threadinfo, process_incoming_rsps,
-			   devdata, "vhba_incming");
+	setup_timer(&devdata->irq_poll_timer, process_incoming_rsps,
+		    (unsigned long)devdata);
+	mod_timer(&devdata->irq_poll_timer,
+		  msecs_to_jiffies(devdata->thread_wait_ms));
 
 	devdata->serverdown = false;
 	devdata->serverchangingstate = false;
@@ -1151,8 +1152,10 @@ static int visorhba_probe(struct visor_device *dev)
 		goto err_scsi_remove_host;
 
 	devdata->thread_wait_ms = 2;
-	visor_thread_start(&devdata->threadinfo, process_incoming_rsps,
-			   devdata, "vhba_incoming");
+	setup_timer(&devdata->irq_poll_timer, process_incoming_rsps,
+		    (unsigned long)devdata);
+	mod_timer(&devdata->irq_poll_timer,
+		  msecs_to_jiffies(devdata->thread_wait_ms));
 
 	scsi_scan_host(scsihost);
 
@@ -1182,7 +1185,7 @@ static void visorhba_remove(struct visor_device *dev)
 		return;
 
 	scsihost = devdata->scsihost;
-	kthread_stop(devdata->threadinfo.task);
+	del_timer_sync(&devdata->irq_poll_timer);
 	scsi_remove_host(scsihost);
 	scsi_host_put(scsihost);
 
