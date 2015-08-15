@@ -658,6 +658,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 	struct input_dev *visorinput_dev;
 	int xmotion, ymotion, zmotion, button;
 	int i;
+	struct visor_device *dev;
 
 	struct visorinput_devdata *devdata =
 		devdata_get(dev_get_drvdata(&dev->device));
@@ -665,6 +666,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 	if (!devdata)
 		return;
 
+	dev = devdata->dev;
 	down_write(&devdata->lock_visor_dev);
 	if (devdata->paused) /* don't touch device/channel when paused */
 		goto out_locked;
