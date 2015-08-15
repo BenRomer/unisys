@@ -665,6 +665,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 	if (!devdata)
 		return;
 
+	dev = devdata->dev;
 	down_write(&devdata->lock_visor_dev);
 	if (devdata->paused) /* don't touch device/channel when paused */
 		goto out_locked;
