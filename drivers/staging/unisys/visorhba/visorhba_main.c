@@ -67,6 +67,9 @@ static struct visor_channeltype_descriptor visorhba_channel_types[] = {
 	{ NULL_UUID_LE, NULL }
 };
 
+static void visorhba_isr(struct visor_device *dev);
+
+
 /* This is used to tell the visor bus driver which types of visor devices
  * we support, and what functions to call when a visor device that we support
  * is attached or removed.
@@ -79,8 +82,9 @@ static struct visor_driver visorhba_driver = {
 	.remove = visorhba_remove,
 	.pause = visorhba_pause,
 	.resume = visorhba_resume,
-	.channel_interrupt = NULL,
+	.channel_interrupt = visorhba_isr,
 };
+
 MODULE_DEVICE_TABLE(visorbus, visorhba_channel_types);
 MODULE_ALIAS("visorbus:" SPAR_VHBA_CHANNEL_PROTOCOL_UUID_STR);
 
@@ -686,6 +690,7 @@ static void visorhba_serverdown_complete(struct visorhba_devdata *devdata)
 	struct uiscmdrsp *cmdrsp;
 	unsigned long flags;
 
+	visorbus_disable_channel_interrupts(devdata->dev);
 	/* Stop using the IOVM response queue (queue should be drained
 	 * by the end)
 	 */
@@ -1166,6 +1171,8 @@ static int visorhba_probe(struct visor_device *dev)
 	devdata->thread_wait_ms = 2;
 	tasklet_init(&devdata->tasklet, process_incoming_rsps,
 		     (unsigned long)devdata);
+
+	visorbus_enable_channel_interrupts(dev);
 
 	scsi_scan_host(scsihost);
 
