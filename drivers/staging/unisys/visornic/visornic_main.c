@@ -2106,7 +2106,24 @@ cleanup_debugfs:
 	return err;
 }
 
+/**
+ *	visornic_cleanup	- driver exit routine
+ *
+ *	Unregister driver from the bus and free up memory.
+ */
+static void visornic_cleanup(void)
+{
+	visorbus_unregister_visor_driver(&visornic_driver);
+
+	if (visornic_timeout_reset_workqueue) {
+		flush_workqueue(visornic_timeout_reset_workqueue);
+		destroy_workqueue(visornic_timeout_reset_workqueue);
+	}
+	debugfs_remove_recursive(visornic_debugfs_dir);
+}
+
 module_init(visornic_init);
+module_exit(visornic_cleanup);
 
 MODULE_AUTHOR("Unisys");
 MODULE_LICENSE("GPL");
