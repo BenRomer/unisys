@@ -1701,7 +1701,7 @@ static int visornic_poll(struct napi_struct *napi, int budget)
 	 */
 	if (rx_count < budget) {
 		napi_complete(napi);
-		visorbus_rearm_interrupts(devdata->dev);
+		visorbus_enable_channel_interrupts(devdata->dev);
 	}
 
 	return rx_count;
@@ -1721,10 +1721,10 @@ visornic_irq(struct visor_device *v)
 	struct visornic_devdata *devdata = dev_get_drvdata(&v->device);
 
 	if (!visorchannel_signalempty(devdata->dev->visorchannel,
-				      IOCHAN_FROM_IOPART))
+				      IOCHAN_FROM_IOPART)) {
+		visorbus_disable_channel_interrupts(devdata->dev);
 		napi_schedule(&devdata->napi);
-	else
-		visorbus_rearm_interrupts(v);
+	}
 }
 
 /**

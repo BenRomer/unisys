@@ -941,14 +941,22 @@ EXPORT_SYMBOL_GPL(visorbus_registerdevnode);
 void
 visorbus_enable_channel_interrupts(struct visor_device *dev)
 {
-	dev_start_periodic_work(dev);
+	if (dev->intr.recv_irq_handle)
+		visorchannel_set_sig_features(dev->visorchannel, 1,
+					      ULTRA_CHANNEL_ENABLE_INTS);
+	else
+		dev_start_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_enable_channel_interrupts);
 
 void
 visorbus_disable_channel_interrupts(struct visor_device *dev)
 {
-	dev_stop_periodic_work(dev);
+	if (!dev->intr.recv_irq_handle)
+		visorchannel_clear_sig_features(dev->visorchannel, 1,
+						ULTRA_CHANNEL_ENABLE_INTS);
+	else
+		dev_stop_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 
@@ -958,8 +966,6 @@ visorbus_isr(int irq, void *dev_id)
 	struct visor_device *dev = (struct visor_device *)dev_id;
 	struct visor_driver *drv = to_visor_driver(dev->device.driver);
 
-	visorchannel_clear_sig_features(dev->visorchannel, 1,
-					ULTRA_CHANNEL_ENABLE_INTS);
 	if (drv->channel_interrupt) {
 		drv->channel_interrupt(dev);
 		return IRQ_HANDLED;
