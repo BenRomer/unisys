@@ -16,6 +16,7 @@
 #include <linux/debugfs.h>
 #include <linux/skbuff.h>
 #include <linux/kthread.h>
+#include <linux/interrupt.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_cmnd.h>
@@ -136,7 +137,7 @@ struct visorhba_devdata {
 	int devnum;
 	struct visor_thread_info threadinfo;
 	int thread_wait_ms;
-	struct timer_list irq_poll_timer;
+	struct tasklet_struct tasklet;
 };
 
 struct visorhba_devices_open {
@@ -688,7 +689,7 @@ static void visorhba_serverdown_complete(struct visorhba_devdata *devdata)
 	/* Stop using the IOVM response queue (queue should be drained
 	 * by the end)
 	 */
-	del_timer_sync(&devdata->irq_poll_timer);
+	tasklet_disable(&devdata->tasklet);
 
 	/* Fail commands that weren't completed */
 	spin_lock_irqsave(&devdata->privlock, flags);
@@ -1018,18 +1019,31 @@ static void process_incoming_rsps(unsigned long v)
 
 	cmdrsp = kmalloc(size, GFP_ATOMIC);
 	if (!cmdrsp) {
-		mod_timer(&devdata->irq_poll_timer,
-			  msecs_to_jiffies(devdata->thread_wait_ms));
+		visorbus_enable_channel_interrupts(devdata->dev);
 		return;
 	}
 
 	/* drain queue */
 	drain_queue(cmdrsp, devdata);
 
+	visorbus_enable_channel_interrupts(devdata->dev);
 	kfree(cmdrsp);
-	mod_timer(&devdata->irq_poll_timer,
-		  msecs_to_jiffies(devdata->thread_wait_ms));
 	return;
+}
+
+/**	visorhba_isr - function to handle interrupts from visorbus
+ *	@dev: device that received interrupt, could be shared
+ *
+ *	Interrupts from visorbus are procesed here. Since the IOVM
+ *	sends us "real" interrupts, we are interrupt context here, so
+ *	we need to schedule the work (if any). Note: Interrupts might
+ *	be shared between devices.
+ */
+static void visorhba_isr(struct visor_device *dev)
+{
+	struct visorhba_devdata *devdata = dev_get_drvdata(&dev->device);
+
+	tasklet_schedule(&devdata->tasklet);
 }
 
 /**
@@ -1073,10 +1087,8 @@ static int visorhba_resume(struct visor_device *dev,
 	if (devdata->serverdown && !devdata->serverchangingstate)
 		devdata->serverchangingstate = 1;
 
-	setup_timer(&devdata->irq_poll_timer, process_incoming_rsps,
-		    (unsigned long)devdata);
-	mod_timer(&devdata->irq_poll_timer,
-		  msecs_to_jiffies(devdata->thread_wait_ms));
+	tasklet_enable(&devdata->tasklet);
+	visorbus_enable_channel_interrupts(dev);
 
 	devdata->serverdown = false;
 	devdata->serverchangingstate = false;
@@ -1152,10 +1164,8 @@ static int visorhba_probe(struct visor_device *dev)
 		goto err_scsi_remove_host;
 
 	devdata->thread_wait_ms = 2;
-	setup_timer(&devdata->irq_poll_timer, process_incoming_rsps,
-		    (unsigned long)devdata);
-	mod_timer(&devdata->irq_poll_timer,
-		  msecs_to_jiffies(devdata->thread_wait_ms));
+	tasklet_init(&devdata->tasklet, process_incoming_rsps,
+		     (unsigned long)devdata);
 
 	scsi_scan_host(scsihost);
 
@@ -1185,7 +1195,8 @@ static void visorhba_remove(struct visor_device *dev)
 		return;
 
 	scsihost = devdata->scsihost;
-	del_timer_sync(&devdata->irq_poll_timer);
+	visorbus_disable_channel_interrupts(dev);
+	tasklet_kill(&devdata->tasklet);
 	scsi_remove_host(scsihost);
 	scsi_host_put(scsihost);
 
