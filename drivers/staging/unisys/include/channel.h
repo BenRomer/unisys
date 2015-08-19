@@ -234,6 +234,31 @@ struct signal_queue_header {
 
 #pragma pack(pop)
 
+struct irq_info {
+        u64 reserved1;
+
+        /* specifies interrupt handle. It is used to retrieve the
+         *   corresponding interrupt pin from Monitor; and the
+         *   interrupt pin is used to connect to the corresponding
+         *   interrupt.  Used by IOPart-GP only.
+         */
+        u64 recv_irq_handle;
+
+        /* specifies interrupt vector. It, interrupt pin, and shared are
+         *   used to connect to the corresponding interrupt.  Used by
+         *   IOPart-GP only.
+         */
+        u32 recv_irq_vector;
+
+        /* specifies if the recvInterrupt is shared.  It, interrupt pin
+         * and vector are used to connect to 0 = not shared; 1 = shared.
+         * the corresponding interrupt.  Used by IOPart-GP only.
+         */
+        u8 recv_irq_shared;
+        u8 reserved[3]; /* Natural alignment purposes */
+};
+
+
 #define spar_signal_init(chan, QHDRFLD, QDATAFLD, QDATATYPE, ver, typ)	\
 	do {								\
 		memset(&chan->QHDRFLD, 0, sizeof(chan->QHDRFLD));	\
