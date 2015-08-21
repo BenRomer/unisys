@@ -1172,6 +1172,12 @@ static int visorhba_probe(struct visor_device *dev)
 	devdata->thread_wait_ms = 2;
 	tasklet_init(&devdata->tasklet, process_incoming_rsps,
 		     (unsigned long)devdata);
+	tasklet_enable(&devdata->tasklet);
+	
+	/* I want to use real interrupts if available so need to
+	 * register 
+	 */
+	visorbus_register_for_channel_interrupts();
 
 	visorbus_enable_channel_interrupts(dev);
 

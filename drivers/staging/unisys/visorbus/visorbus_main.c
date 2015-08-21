@@ -969,6 +969,14 @@ visorbus_isr(int irq, void *dev_id)
 	struct visor_device *dev = (struct visor_device *)dev_id;
 	struct visor_driver *drv = to_visor_driver(dev->device.driver);
 
+	/* Disable the interrupt in hardware for this device.
+	 * When the device is done handling the interrupt, it has
+	 * the responsibility of re-arming the interrupt so the SP
+	 * can send another one.
+	 */
+	visorchannel_clear_sig_features(dev->visorchannel,
+					IOCHAN_FROM_IOPART,
+					ULTRA_CHANNEL_ENABLE_INTS);
 	if (drv->channel_interrupt) {
 		drv->channel_interrupt(dev);
 		return IRQ_HANDLED;
