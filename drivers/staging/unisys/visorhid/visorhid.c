@@ -384,7 +384,7 @@ register_client_mouse(void)
 	visorinput_dev->phys = "visormou:input0";
 	visorinput_dev->id.bustype = BUS_HOST;
 	visorinput_dev->id.vendor = 0x0001;
-	visorinput_dev->id.product = 0x0001;
+	visorinput_dev->id.product = 0x0002;
 	visorinput_dev->id.version = 0x0100;
 
 	visorinput_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_ABS);
@@ -437,7 +437,7 @@ register_client_wheel(void)
 	visorinput_dev->phys = "visorwhl:input0";
 	visorinput_dev->id.bustype = BUS_HOST;
 	visorinput_dev->id.vendor = 0x0001;
-	visorinput_dev->id.product = 0x0001;
+	visorinput_dev->id.product = 0x0003;
 	visorinput_dev->id.version = 0x0100;
 
 	/* We need to lie a little to prevent the evdev driver "Don't
