@@ -499,6 +499,7 @@ handle_locking_key(struct input_dev *visorinput_dev,
 
 		if (old_state != desired_state) {
 			do_key(visorinput_dev, keycode, 1);
+			input_sync(visorinput_dev);
 			do_key(visorinput_dev, keycode, 0);
 			input_sync(visorinput_dev);
 			__change_bit(led, visorinput_dev->led);
@@ -579,6 +580,7 @@ visorhid_channel_interrupt(struct visor_device *dev)
 			break;
 		case inputaction_key_down_up:
 			do_key(visorinput_dev, keycode, 1);
+			input_sync(visorinput_dev);
 			do_key(visorinput_dev, keycode, 0);
 			input_sync(visorinput_dev);
 			break;
