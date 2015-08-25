@@ -48,7 +48,6 @@ static int visorhid_resume(struct visor_device *dev,
 			   visorbus_state_complete_func complete_func);
 static struct input_dev *register_client_keyboard(void);
 static struct input_dev *register_client_mouse(void);
-static struct input_dev *register_client_wheel(void);
 static void unregister_client_input(struct input_dev *visorinput_dev);
 
 /* GUIDS for all channel types supported by this driver. */
@@ -91,7 +90,6 @@ struct visorhid_devdata {
 	/** lock for dev */
 	struct rw_semaphore lock_visor_dev;
 	struct input_dev *visorinput_dev;
-	struct input_dev *visorinput_dev2;
 	bool paused;
 };
 
@@ -255,9 +253,6 @@ devdata_create(struct visor_device *dev, enum visorhid_device_type devtype)
 		devdata->visorinput_dev = register_client_mouse();
 		if (!devdata->visorinput_dev)
 			goto cleanups_register;
-		devdata->visorinput_dev2 = register_client_wheel();
-		if (!devdata->visorinput_dev2)
-			goto cleanups_register2;
 		break;
 	}
 
@@ -265,8 +260,6 @@ devdata_create(struct visor_device *dev, enum visorhid_device_type devtype)
 
 	return devdata;
 
-cleanups_register2:
-	unregister_client_input(devdata->visorinput_dev);
 cleanups_register:
 	kfree(devdata);
 	return NULL;
@@ -311,7 +304,6 @@ visorhid_remove(struct visor_device *dev)
 	down_write(&devdata->lock_visor_dev);
 	dev_set_drvdata(&dev->device, NULL);
 	unregister_client_input(devdata->visorinput_dev);
-	unregister_client_input(devdata->visorinput_dev2);
 	up_write(&devdata->lock_visor_dev);
 	kfree(devdata);
 }
@@ -420,44 +412,8 @@ register_client_mouse(void)
 	input_report_abs(visorinput_dev, ABS_Y, yres - 1);
 	input_sync(visorinput_dev);
 
-	return visorinput_dev;
-}
+	input_set_capability(visorinput_dev, EV_REL, REL_WHEEL);
 
-static struct input_dev *
-register_client_wheel(void)
-{
-	int error;
-	struct input_dev *visorinput_dev = NULL;
-
-	visorinput_dev = input_allocate_device();
-	if (!visorinput_dev)
-		return NULL;
-
-	visorinput_dev->name = "visor Wheel";
-	visorinput_dev->phys = "visorwhl:input0";
-	visorinput_dev->id.bustype = BUS_HOST;
-	visorinput_dev->id.vendor = 0x0001;
-	visorinput_dev->id.product = 0x0003;
-	visorinput_dev->id.version = 0x0100;
-
-	/* We need to lie a little to prevent the evdev driver "Don't
-	 * know how to use device" error.  (evdev erroneously thinks
-	 * that a device without an X and Y axis is useless.)
-	 */
-	visorinput_dev->evbit[0] = BIT_MASK(EV_REL) |
-			/*lie */   BIT_MASK(EV_KEY);
-	visorinput_dev->relbit[0] = BIT_MASK(REL_WHEEL) |
-			/*lie */    BIT_MASK(REL_X) |
-			/*lie */    BIT_MASK(REL_Y);
-	set_bit(BTN_LEFT, visorinput_dev->keybit);	/*lie */
-	set_bit(BTN_RIGHT, visorinput_dev->keybit);	/*lie */
-	set_bit(BTN_MIDDLE, visorinput_dev->keybit);	/*lie */
-
-	error = input_register_device(visorinput_dev);
-	if (error) {
-		input_free_device(visorinput_dev);
-		return NULL;
-	}
 	return visorinput_dev;
 }
 
@@ -548,7 +504,6 @@ visorhid_channel_interrupt(struct visor_device *dev)
 	struct ultra_inputreport r;
 	int scancode, keycode;
 	struct input_dev *visorinput_dev;
-	struct input_dev *visorinput_dev2;
 	int xmotion, ymotion, zmotion, button;
 	int i;
 
@@ -565,7 +520,6 @@ visorhid_channel_interrupt(struct visor_device *dev)
 	if (!visorinput_dev)
 		goto out_locked;
 
-	visorinput_dev2 = devdata->visorinput_dev2;
 	while (visorchannel_signalremove(dev->visorchannel, 0, &r)) {
 		scancode = r.activity.arg1;
 		keycode = scancode_to_keycode(scancode);
@@ -631,18 +585,14 @@ visorhid_channel_interrupt(struct visor_device *dev)
 			}
 			break;
 		case inputaction_wheel_rotate_away:
-			if (!visorinput_dev2)
-				goto out_locked;
 			zmotion = r.activity.arg1;
-			input_report_rel(visorinput_dev2, REL_WHEEL, 1);
-			input_sync(visorinput_dev2);
+			input_report_rel(visorinput_dev, REL_WHEEL, 1);
+			input_sync(visorinput_dev);
 			break;
 		case inputaction_wheel_rotate_toward:
-			if (!visorinput_dev2)
-				goto out_locked;
 			zmotion = r.activity.arg1;
-			input_report_rel(visorinput_dev2, REL_WHEEL, -1);
-			input_sync(visorinput_dev2);
+			input_report_rel(visorinput_dev, REL_WHEEL, -1);
+			input_sync(visorinput_dev);
 			break;
 		}
 	}
