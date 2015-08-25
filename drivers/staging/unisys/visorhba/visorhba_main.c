@@ -98,8 +98,9 @@ struct visordisk_info {
 };
 
 struct scsipending {
-	char cmdtype;		/* Type of pointer that is being stored */
+	struct uiscmdrsp cmdrsp;
 	void *sent;		/* The Data being tracked */
+	char cmdtype;		/* Type of pointer that is being stored */
 };
 
 /* Work Data for dar_work_queue */
@@ -183,14 +184,16 @@ static int visor_thread_start(struct visor_thread_info *thrinfo,
  *	@new:	The command to be saved
  *
  *	Saves off the io command that is being handled by the Service
- *	Partition so that it can be handled when it completes.
+ *	Partition so that it can be handled when it completes. If new is
+ *	NULL it is assumed the entry refers only to the cmdrsp.
  *	Returns insert_location where entry was added,
- *	SCSI_MLQUEUE_DEVICE_BUSYif it can't
+ *	SCSI_MLQUEUE_DEVICE_BUSY if it can't
  */
 static int add_scsipending_entry(struct visorhba_devdata *devdata,
 				 char cmdtype, void *new)
 {
 	unsigned long flags;
+	struct scsipending *entry;
 	int insert_location;
 
 	spin_lock_irqsave(&devdata->privlock, flags);
@@ -203,8 +206,13 @@ static int add_scsipending_entry(struct visorhba_devdata *devdata,
 		}
 	}
 
-	devdata->pending[insert_location].cmdtype = cmdtype;
-	devdata->pending[insert_location].sent = new;
+	entry = &devdata->pending[insert_location];
+	memset(&entry->cmdrsp, 0, sizeof(entry->cmdrsp));
+	entry->cmdtype = cmdtype;
+	if (new)
+		entry->sent = new;
+	else /* wants to send cmdrsp */
+		entry->sent = &entry->cmdrsp;
 	devdata->nextinsert = (insert_location + 1) % MAX_PENDING_REQUESTS;
 	spin_unlock_irqrestore(&devdata->privlock, flags);
 
@@ -238,6 +246,24 @@ static void *del_scsipending_ent(struct visorhba_devdata *devdata,
 }
 
 /**
+ *	get_scsipending_cmdrsp - return the cmdrsp stored in a pending entry
+ *	#ddata: Device holding the pending array
+ *	@ent: Entry that stores the cmdrsp
+ *
+ *	Each scsipending entry has a cmdrsp in it. The cmdrsp is only valid
+ *	if the "sent" field is not NULL
+ *	Returns a pointer to the cmdrsp.
+ */
+static struct uiscmdrsp *get_scsipending_cmdrsp(struct visorhba_devdata *ddata,
+						int ent)
+{
+	if (ddata->pending[ent].sent)
+		return &ddata->pending[ent].cmdrsp;
+
+	return NULL;
+}
+
+/**
  *	forward_taskmgmt_command - send taskmegmt command to the Service
  *				   Partition
  *	@tasktype: Type of taskmgmt command
@@ -257,14 +283,16 @@ static int forward_taskmgmt_command(enum task_mgmt_types tasktype,
 	int notifyresult = 0xffff;
 	wait_queue_head_t notifyevent;
 	int scsicmd_id = 0;
-	int err = 0;
 
 	if (devdata->serverdown || devdata->serverchangingstate)
 		return FAILED;
 
-	cmdrsp = kzalloc(sizeof(*cmdrsp), GFP_ATOMIC);
-	if (!cmdrsp)
+	scsicmd_id = add_scsipending_entry(devdata, CMD_SCSITASKMGMT_TYPE,
+					   NULL);
+	if (scsicmd_id < 0)
 		return FAILED;
+
+	cmdrsp = get_scsipending_cmdrsp(devdata, scsicmd_id);
 
 	init_waitqueue_head(&notifyevent);
 
@@ -280,25 +308,19 @@ static int forward_taskmgmt_command(enum task_mgmt_types tasktype,
 	cmdrsp->scsitaskmgmt.vdest.channel = scsidev->channel;
 	cmdrsp->scsitaskmgmt.vdest.id = scsidev->id;
 	cmdrsp->scsitaskmgmt.vdest.lun = scsidev->lun;
-	scsicmd_id = add_scsipending_entry(devdata, CMD_SCSITASKMGMT_TYPE,
-					   (void *)cmdrsp);
-	if (scsicmd_id < 0)
-		goto err_kfree_cmdrsp;
-
 	cmdrsp->scsitaskmgmt.handle = scsicmd_id;
 
 	if (!visorchannel_signalinsert(devdata->dev->visorchannel,
 				       IOCHAN_TO_IOPART,
 				       cmdrsp))
-		goto err_kfree_cmdrsp;
-
+		goto err_del_scsipending_ent;
 
 	/* It can take the Service Partition up to 35 seconds to complete
 	 * an IO in some cases, so wait 45 seconds and error out
 	 */
 	if (!wait_event_timeout(notifyevent, notifyresult != 0xffff,
 				msecs_to_jiffies(45000)))
-		goto err_kfree_cmdrsp;
+		goto err_del_scsipending_ent;
 
 	if (tasktype == TASK_MGMT_ABORT_TASK)
 		scsicmd->result = (DID_ABORT << 16);
@@ -307,11 +329,10 @@ static int forward_taskmgmt_command(enum task_mgmt_types tasktype,
 
 	scsicmd->scsi_done(scsicmd);
 
-	kfree(cmdrsp);
 	return SUCCESS;
 
-err_kfree_cmdrsp:
-	kfree(cmdrsp);
+err_del_scsipending_ent:
+	del_scsipending_ent(devdata, scsicmd_id);
 	return FAILED;
 }
 
@@ -429,12 +450,12 @@ static int
 visorhba_queue_command_lck(struct scsi_cmnd *scsicmd,
 			   void (*visorhba_cmnd_done)(struct scsi_cmnd *))
 {
+	struct uiscmdrsp *cmdrsp;
 	struct scsi_device *scsidev = scsicmd->device;
 	int insert_location;
 	unsigned char op;
 	unsigned char *cdb = scsicmd->cmnd;
 	struct Scsi_Host *scsihost = scsidev->host;
-	struct uiscmdrsp *cmdrsp;
 	unsigned int i;
 	struct visorhba_devdata *devdata =
 		(struct visorhba_devdata *)scsihost->hostdata;
@@ -445,26 +466,20 @@ visorhba_queue_command_lck(struct scsi_cmnd *scsicmd,
 	if (devdata->serverdown || devdata->serverchangingstate)
 		return SCSI_MLQUEUE_DEVICE_BUSY;
 
-	cmdrsp = kzalloc(sizeof(*cmdrsp), GFP_ATOMIC);
-	if (!cmdrsp)
-		return -ENOMEM;
+	insert_location = add_scsipending_entry(devdata, CMD_SCSI_TYPE,
+						(void *)scsicmd);
 
-	/* now saving everything we need from scsi_cmd into cmdrsp
-	 * before we queue cmdrsp set type to command - as opposed to
-	 * task mgmt
-	 */
+	if (insert_location < 0)
+		return SCSI_MLQUEUE_DEVICE_BUSY;
+
+	cmdrsp = get_scsipending_cmdrsp(devdata, insert_location);
+
 	cmdrsp->cmdtype = CMD_SCSI_TYPE;
 	/* save the pending insertion location. Deletion from pending
 	 * will return the scsicmd pointer for completion
 	 */
-	insert_location =
-		add_scsipending_entry(devdata, CMD_SCSI_TYPE, (void *)scsicmd);
-	if (insert_location >= 0) {
-		cmdrsp->scsi.handle = insert_location;
-	} else {
-		err = SCSI_MLQUEUE_DEVICE_BUSY;
-		goto err_free_cmdrsp;
-	}
+	cmdrsp->scsi.handle = insert_location;
+
 	/* save done function that we have call when cmd is complete */
 	scsicmd->scsi_done = visorhba_cmnd_done;
 	/* save destination */
@@ -473,10 +488,7 @@ visorhba_queue_command_lck(struct scsi_cmnd *scsicmd,
 	cmdrsp->scsi.vdest.lun = scsidev->lun;
 	/* save datadir */
 	cmdrsp->scsi.data_dir = scsicmd->sc_data_direction;
-	if (!memcpy(cmdrsp->scsi.cmnd, cdb, MAX_CMND_SIZE)) {
-		err = -ENOMEM;
-		goto err_del_scsipending_ent;
-	}
+	memcpy(cmdrsp->scsi.cmnd, cdb, MAX_CMND_SIZE);
 
 	cmdrsp->scsi.bufflen = scsi_bufflen(scsicmd);
 
@@ -485,7 +497,7 @@ visorhba_queue_command_lck(struct scsi_cmnd *scsicmd,
 		devdata->max_buff_len = cmdrsp->scsi.bufflen;
 
 	if (scsi_sg_count(scsicmd) > MAX_PHYS_INFO) {
-		err = -EINVAL;
+		err = SCSI_MLQUEUE_DEVICE_BUSY;
 		goto err_del_scsipending_ent;
 	}
 
@@ -511,14 +523,10 @@ visorhba_queue_command_lck(struct scsi_cmnd *scsicmd,
 		err = SCSI_MLQUEUE_DEVICE_BUSY;
 		goto err_del_scsipending_ent;
 	}
-	kfree(cmdrsp);
 	return 0;
 
 err_del_scsipending_ent:
 	del_scsipending_ent(devdata, insert_location);
-
-err_free_cmdrsp:
-	kfree(cmdrsp);
 	return err;
 }
 
