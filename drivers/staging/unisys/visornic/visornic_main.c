@@ -1869,7 +1869,6 @@ static int visornic_probe(struct visor_device *dev)
 		goto cleanup_napi_add;
 	}
 
-	features |= ULTRA_IO_CHANNEL_IS_POLLING;
 	features |= ULTRA_IO_DRIVER_SUPPORTS_ENHANCED_RCVBUF_CHECKING;
 	err = visorbus_write_channel(dev, channel_offset, &features, 8);
 	if (err) {
