@@ -338,7 +338,7 @@ register_client_keyboard(void)
 		return NULL;
 
 	visorinput_dev->name = "visor Keyboard";
-	visorinput_dev->phys = "visorkbd!input0";
+	visorinput_dev->phys = "visorkbd:input0";
 	visorinput_dev->id.bustype = BUS_HOST;
 	visorinput_dev->id.vendor = 0x0001;
 	visorinput_dev->id.product = 0x0001;
@@ -381,7 +381,7 @@ register_client_mouse(void)
 		return NULL;
 
 	visorinput_dev->name = "visor Mouse";
-	visorinput_dev->phys = "visormou!input0";
+	visorinput_dev->phys = "visormou:input0";
 	visorinput_dev->id.bustype = BUS_HOST;
 	visorinput_dev->id.vendor = 0x0001;
 	visorinput_dev->id.product = 0x0001;
@@ -434,7 +434,7 @@ register_client_wheel(void)
 		return NULL;
 
 	visorinput_dev->name = "visor Wheel";
-	visorinput_dev->phys = "visorwhl!input0";
+	visorinput_dev->phys = "visorwhl:input0";
 	visorinput_dev->id.bustype = BUS_HOST;
 	visorinput_dev->id.vendor = 0x0001;
 	visorinput_dev->id.product = 0x0001;
