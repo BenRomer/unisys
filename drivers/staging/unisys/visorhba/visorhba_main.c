@@ -202,7 +202,7 @@ static int add_scsipending_entry(struct visorhba_devdata *devdata,
 		insert_location = (insert_location + 1) % MAX_PENDING_REQUESTS;
 		if (insert_location == (int)devdata->nextinsert) {
 			spin_unlock_irqrestore(&devdata->privlock, flags);
-			return SCSI_MLQUEUE_DEVICE_BUSY;
+			return -1;
 		}
 	}
 
