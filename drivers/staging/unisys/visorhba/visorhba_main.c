@@ -260,11 +260,11 @@ static int forward_taskmgmt_command(enum task_mgmt_types tasktype,
 	int err = 0;
 
 	if (devdata->serverdown || devdata->serverchangingstate)
-		return -EINVAL;
+		return FAILED;
 
 	cmdrsp = kzalloc(sizeof(*cmdrsp), GFP_ATOMIC);
 	if (!cmdrsp)
-		return -ENOMEM;
+		return FAILED;
 
 	init_waitqueue_head(&notifyevent);
 
@@ -282,27 +282,23 @@ static int forward_taskmgmt_command(enum task_mgmt_types tasktype,
 	cmdrsp->scsitaskmgmt.vdest.lun = scsidev->lun;
 	scsicmd_id = add_scsipending_entry(devdata, CMD_SCSITASKMGMT_TYPE,
 					   (void *)cmdrsp);
-	if (scsicmd_id < 0) {
-		err = scsicmd_id;
+	if (scsicmd_id < 0)
 		goto err_kfree_cmdrsp;
-	}
+
 	cmdrsp->scsitaskmgmt.handle = scsicmd_id;
 
 	if (!visorchannel_signalinsert(devdata->dev->visorchannel,
 				       IOCHAN_TO_IOPART,
-				       cmdrsp)) {
-		err = SCSI_MLQUEUE_DEVICE_BUSY;
+				       cmdrsp))
 		goto err_kfree_cmdrsp;
-	}
+
 
 	/* It can take the Service Partition up to 35 seconds to complete
 	 * an IO in some cases, so wait 45 seconds and error out
 	 */
 	if (!wait_event_timeout(notifyevent, notifyresult != 0xffff,
-				msecs_to_jiffies(45000))) {
-		err = SCSI_MLQUEUE_DEVICE_BUSY;
+				msecs_to_jiffies(45000)))
 		goto err_kfree_cmdrsp;
-	}
 
 	if (tasktype == TASK_MGMT_ABORT_TASK)
 		scsicmd->result = (DID_ABORT << 16);
@@ -316,7 +312,7 @@ static int forward_taskmgmt_command(enum task_mgmt_types tasktype,
 
 err_kfree_cmdrsp:
 	kfree(cmdrsp);
-	return err;
+	return FAILED;
 }
 
 /**
