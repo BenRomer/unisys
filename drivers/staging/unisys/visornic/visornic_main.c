@@ -1854,17 +1854,6 @@ static int visornic_probe(struct visor_device *dev)
 		goto cleanup_xmit_cmdrsp;
 	}
 
-	/* TODO: Setup Interrupt information */
-	/* Let's start our threads to get responses */
-	netif_napi_add(netdev, &devdata->napi, visornic_poll, 64);
-
-	/*
-	 * Note: Interupts have to be enable before the while
-	 * loop below because the napi routine is responsible for
-	 * setting enab_dis_acked
-	 */
-	visorbus_enable_channel_interrupts(dev);
-
 	channel_offset = offsetof(struct spar_io_channel_protocol,
 				  channel_header.features);
 	err = visorbus_read_channel(dev, channel_offset, &features, 8);
@@ -1884,6 +1873,17 @@ static int visornic_probe(struct visor_device *dev)
 			__func__, err);
 		goto cleanup_napi_add;
 	}
+
+	/* TODO: Setup Interrupt information */
+	/* Let's start our threads to get responses */
+	netif_napi_add(netdev, &devdata->napi, visornic_poll, 64);
+
+	/*
+	 * Note: Interupts have to be enable before the while
+	 * loop below because the napi routine is responsible for
+	 * setting enab_dis_acked
+	 */
+	visorbus_enable_channel_interrupts(dev);
 
 	err = register_netdev(netdev);
 	if (err) {
