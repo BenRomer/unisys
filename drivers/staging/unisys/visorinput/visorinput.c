@@ -226,11 +226,8 @@ static int visorinput_open(struct input_dev *visorinput_dev)
 		       __func__, visorinput_dev);
 		return -EINVAL;
 	}
-	devdata->opened++;
-	dev_dbg(&visorinput_dev->dev, "%s opened %d\n", __func__,
-		devdata->opened);
-	if (devdata->opened == 1)
-		visorbus_enable_channel_interrupts(devdata->dev);
+	dev_dbg(&visorinput_dev->dev, "%s opened\n", __func__);
+	visorbus_enable_channel_interrupts(devdata->dev);
 	return 0;
 }
 
@@ -243,14 +240,8 @@ static void visorinput_close(struct input_dev *visorinput_dev)
 		       __func__, visorinput_dev);
 		return;
 	}
-	if (devdata->opened) {
-		devdata->opened--;
-		dev_dbg(&visorinput_dev->dev, "%s closed %d\n", __func__,
-			devdata->opened);
-		if (devdata->opened == 0)
-			visorbus_disable_channel_interrupts(devdata->dev);
-	} else
-		dev_err(&visorinput_dev->dev, "%s not open\n", __func__);
+	dev_dbg(&visorinput_dev->dev, "%s closed\n", __func__);
+	visorbus_disable_channel_interrupts(devdata->dev);
 }
 
 /*
