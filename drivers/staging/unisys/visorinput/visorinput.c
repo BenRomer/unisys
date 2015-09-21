@@ -66,7 +66,6 @@ struct visorinput_devdata {
 	struct rw_semaphore lock_visor_dev; /* lock for dev */
 	struct input_dev *visorinput_dev;
 	bool paused;
-	unsigned int opened;
 	unsigned int keycode_table_bytes; /* size of following array */
 	/* for keyboard devices: visorkbd_keycode[] + visorkbd_ext_keycode[] */
 	unsigned char keycode_table[0];
