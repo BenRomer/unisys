@@ -1085,7 +1085,6 @@ static int visorhba_probe(struct visor_device *dev)
 	struct vhba_config_max max;
 	struct visorhba_devdata *devdata = NULL;
 	int i, err, channel_offset;
-	u64 features;
 
 	scsihost = scsi_host_alloc(&visorhba_driver_template,
 				   sizeof(*devdata));
@@ -1129,16 +1128,6 @@ static int visorhba_probe(struct visor_device *dev)
 	devdata->serverchangingstate = false;
 	devdata->scsihost = scsihost;
 
-	channel_offset = offsetof(struct spar_io_channel_protocol,
-				  channel_header.features);
-	err = visorbus_read_channel(dev, channel_offset, &features, 8);
-	if (err)
-		goto err_scsi_remove_host;
-	features |= ULTRA_IO_CHANNEL_IS_POLLING;
-	err = visorbus_write_channel(dev, channel_offset, &features, 8);
-	if (err)
-		goto err_scsi_remove_host;
-
 	devdata->thread_wait_ms = 2;
 	tasklet_init(&devdata->tasklet, process_incoming_rsps,
 		     (unsigned long)devdata);
@@ -1152,9 +1141,6 @@ static int visorhba_probe(struct visor_device *dev)
 	scsi_scan_host(scsihost);
 
 	return 0;
-
-err_scsi_remove_host:
-	scsi_remove_host(scsihost);
 
 err_scsi_host_put:
 	scsi_host_put(scsihost);
