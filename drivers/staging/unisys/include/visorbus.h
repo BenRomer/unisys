@@ -218,6 +218,10 @@ char *visorchannel_uuid_id(uuid_le *guid, char *s);
 void visorchannel_debug(struct visorchannel *channel, int num_queues,
 			struct seq_file *seq, u32 off);
 void __iomem *visorchannel_get_header(struct visorchannel *channel);
+void visorchannel_set_sig_features(struct visorchannel *channel, u32 queue,
+				   u64 features);
+void visorchannel_clear_sig_features(struct visorchannel *channel, u32 queue,
+				     u64 features);
 
 #define BUS_ROOT_DEVICE		UINT_MAX
 struct visor_device *visorbus_get_device_by_id(u32 bus_no, u32 dev_no,
