@@ -36,6 +36,7 @@
  *         = 163840 bytes
  */
 #define MAX_BUF 163840
+#define NAPI_WEIGHT 64
 
 static int visornic_probe(struct visor_device *dev);
 static void visornic_remove(struct visor_device *dev);
@@ -1612,14 +1613,14 @@ drain_resp_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata)
  */
 static void
 service_resp_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata,
-		   int *rx_work_done)
+		   int *rx_work_done, int budget)
 {
 	unsigned long flags;
 	struct net_device *netdev;
 
 	/* TODO: CLIENT ACQUIRE -- Don't really need this at the
 	 * moment */
-	for (;;) {
+	while (*rx_work_done < budget) {
 		if (!visorchannel_signalremove(devdata->dev->visorchannel,
 					       IOCHAN_FROM_IOPART,
 					       cmdrsp))
@@ -1708,7 +1709,7 @@ static int visornic_poll(struct napi_struct *napi, int budget)
 	int rx_count = 0;
 
 	send_rcv_posts_if_needed(devdata);
-	service_resp_queue(devdata->cmdrsp, devdata, &rx_count);
+	service_resp_queue(devdata->cmdrsp, devdata, &rx_count, budget);
 
 	/*
 	 * If there aren't any more packets to receive
@@ -1876,7 +1877,7 @@ static int visornic_probe(struct visor_device *dev)
 
 	/* TODO: Setup Interrupt information */
 	/* Let's start our threads to get responses */
-	netif_napi_add(netdev, &devdata->napi, visornic_poll, 64);
+	netif_napi_add(netdev, &devdata->napi, visornic_poll, NAPI_WEIGHT);
 
 	/*
 	 * Note: Interupts have to be enable before the while
