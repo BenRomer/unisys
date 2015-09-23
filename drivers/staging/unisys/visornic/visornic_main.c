@@ -1620,7 +1620,6 @@ service_resp_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata,
 	struct net_device *netdev;
 
 	while (*rx_work_done < budget) {
-	 */
 		if (!visorchannel_signalremove(devdata->dev->visorchannel,
 					       IOCHAN_FROM_IOPART,
 					       cmdrsp))
@@ -1886,7 +1885,7 @@ static int visornic_probe(struct visor_device *dev)
 	visorbus_enable_channel_interrupts(dev);
 
 	/* Let's start our threads to get responses */
-	netif_napi_add(netdev, &devdata->napi, visornic_poll, 64);
+	netif_napi_add(netdev, &devdata->napi, visornic_poll, NAPI_WEIGHT);
 
 	/*
 	 * Note: Interupts have to be enable before the while
