@@ -538,6 +538,73 @@ visorchannel_signalqueue_max_slots(struct visorchannel *channel, u32 queue)
 }
 EXPORT_SYMBOL_GPL(visorchannel_signalqueue_max_slots);
 
+/**
+ *	atomic_clear_or_set_bits_64
+ *
+ *	Atomically clear or set bits within a 64-bit word
+ *	@tgt: a pointer to the 64-bit word to be modified.
+ *	@bit: a bit mask, usage based on is_set flag;
+ *	@is_set: if is_set true, 1 bit indicated which bits
+ *		 you want to set within tgt
+ *		 if is_set false, 1 bits indicate which bits
+ *		 you want to clear within tgt
+ *
+ *	Returns void
+ */
+void
+atomic_clear_or_set_bits_64(u64 *tgt, u64 bits, bool is_set)
+{
+	u64 i;
+	u64 j;
+
+	j = readq(tgt);
+	do {
+		i = j;
+		j = cmpxchg64(tgt, i, (is_set) ? (i | bits) : (i & ~bits));
+	} while (i != j);
+}
+
+/**
+ *	visorchannel_clear_or_set_sig_features
+ *
+ *	Atomically clear or set bits within the 64-bit features word for the
+ *	specified channel and queue.
+ *	@channel: the channel to modify features for.
+ *	@queue: the queue number to modify features for.
+ *	@features: a mask of feature bits usage based on is_set flag;
+ *	@is_set: if is_set is true, 1 bits indicate which features bits
+ *		 you want to set within the feature word;
+ *		 if is_set is false, 1 bits indicate which feature bits
+ *		 you want to clear within the features word
+ */
+void
+visorchannel_clear_or_set_sig_features(struct visorchannel *channel,
+				       u32 queue, u64 features, bool is_set)
+{
+	u64 *tgt = (u64 *)((u8 *)channel +
+				SIG_QUEUE_OFFSET(&channel->chan_hdr, queue) +
+				offsetof(struct signal_queue_header, features));
+	atomic_clear_or_set_bits_64(tgt, features, is_set);
+}
+
+void
+visorchannel_clear_sig_features(struct visorchannel *channel, u32 queue,
+				u64 features)
+{
+	visorchannel_clear_or_set_sig_features(channel, queue, features,
+					       false);
+}
+EXPORT_SYMBOL_GPL(visorchannel_clear_sig_features);
+
+void
+visorchannel_set_sig_features(struct visorchannel *channel, u32 queue,
+			      u64 features)
+{
+	visorchannel_clear_or_set_sig_features(channel, queue, features,
+					       true);
+}
+EXPORT_SYMBOL_GPL(visorchannel_set_sig_features);
+
 static void
 sigqueue_debug(struct signal_queue_header *q, int which, struct seq_file *seq)
 {
