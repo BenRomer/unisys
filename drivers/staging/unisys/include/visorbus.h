@@ -144,7 +144,7 @@ struct visor_device {
 				   * want; */
 	} devnodes[5];
 	/* the code will detect and behave appropriately) */
-	struct semaphore visordriver_callback_lock;
+	spinlock_t visordriver_callback_lock;
 	bool pausing;
 	bool resuming;
 	u32 chipset_bus_no;

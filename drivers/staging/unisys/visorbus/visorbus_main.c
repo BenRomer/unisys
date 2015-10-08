@@ -720,11 +720,12 @@ dev_periodic_work(void *xdev)
 {
 	struct visor_device *dev = xdev;
 	struct visor_driver *drv = to_visor_driver(dev->device.driver);
+	unsigned long flags;
 
-	down(&dev->visordriver_callback_lock);
+	spin_lock_irqsave(&dev->visordriver_callback_lock, flags);
 	if (drv->channel_interrupt)
 		drv->channel_interrupt(dev);
-	up(&dev->visordriver_callback_lock);
+	spin_unlock_irqrestore(&dev->visordriver_callback_lock, flags);
 	if (!visor_periodic_work_nextperiod(dev->periodic_work))
 		put_device(&dev->device);
 }
@@ -758,10 +759,12 @@ visordriver_probe_device(struct device *xdev)
 	int rc;
 	struct visor_driver *drv;
 	struct visor_device *dev;
+	unsigned long flags;
 
 	drv = to_visor_driver(xdev->driver);
 	dev = to_visor_device(xdev);
-	down(&dev->visordriver_callback_lock);
+	
+	spin_lock_irqsave(&dev->visordriver_callback_lock, flags);
 	dev->being_removed = false;
 	/*
 	 * ensure that the dev->being_removed flag is cleared before
@@ -770,7 +773,7 @@ visordriver_probe_device(struct device *xdev)
 	wmb();
 	get_device(&dev->device);
 	if (!drv->probe) {
-		up(&dev->visordriver_callback_lock);
+		spin_unlock_irqrestore(&dev->visordriver_callback_lock, flags);
 		rc = -1;
 		goto away;
 	}
@@ -779,7 +782,7 @@ visordriver_probe_device(struct device *xdev)
 		goto away;
 
 	fix_vbus_dev_info(dev);
-	up(&dev->visordriver_callback_lock);
+	spin_unlock_irqrestore(&dev->visordriver_callback_lock, flags);
 	rc = 0;
 away:
 	if (rc != 0)
@@ -796,10 +799,11 @@ visordriver_remove_device(struct device *xdev)
 {
 	struct visor_device *dev;
 	struct visor_driver *drv;
+	unsigned long flags;
 
 	dev = to_visor_device(xdev);
 	drv = to_visor_driver(xdev->driver);
-	down(&dev->visordriver_callback_lock);
+	spin_lock_irqsave(&dev->visordriver_callback_lock, flags);
 	dev->being_removed = true;
 	/*
 	 * ensure that the dev->being_removed flag is set before we start the
@@ -810,7 +814,7 @@ visordriver_remove_device(struct device *xdev)
 		if (drv->remove)
 			drv->remove(dev);
 	}
-	up(&dev->visordriver_callback_lock);
+	spin_unlock_irqrestore(&dev->visordriver_callback_lock, flags);
 	dev_stop_periodic_work(dev);
 	devmajorminor_remove_all_files(dev);
 
@@ -980,7 +984,7 @@ create_visor_device(struct visor_device *dev)
 	POSTCODE_LINUX_4(DEVICE_CREATE_ENTRY_PC, chipset_dev_no, chipset_bus_no,
 			 POSTCODE_SEVERITY_INFO);
 
-	sema_init(&dev->visordriver_callback_lock, 1);	/* unlocked */
+	spin_lock_init(&dev->visordriver_callback_lock);
 	dev->device.bus = &visorbus_type;
 	dev->device.groups = visorbus_channel_groups;
 	device_initialize(&dev->device);
