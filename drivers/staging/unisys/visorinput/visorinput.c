@@ -28,6 +28,7 @@
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
 #include <linux/uuid.h>
+#include <linux/workqueue.h>
 
 #include "version.h"
 #include "visorbus.h"
@@ -46,14 +47,50 @@
 		0x81, 0xc3, 0x61, 0xab, 0xcd, 0xbd, 0xbd, 0x87)
 #define SPAR_MOUSE_CHANNEL_PROTOCOL_UUID_STR \
 	"addf07d4-94a9-46e2-81c3-61abcdbdbd87"
+/* header of keyboard/mouse channels */
+struct spar_input_channel_protocol {
+	struct channel_header channel_header;
+	u32 n_input_reports;
+	union {
+		struct {
+			u16 x_resolution;
+			u16 y_resolution;
+		} mouse;
+		struct {
+			u32 flags;
+		} keyboard;
+	};
+} __packed;
 
-#define PIXELS_ACROSS_DEFAULT	800
-#define PIXELS_DOWN_DEFAULT	600
+#define sizeofmemb(TYPE, MEMBER) sizeof(((TYPE *)0)->MEMBER)
+
+static unsigned read_input_channel_uint(struct visor_device *dev,
+					unsigned offset, unsigned size)
+{
+	unsigned v=0;
+
+	if (visorbus_read_channel(dev, offset, &v, size)) {
+		dev_warn(&dev->device,
+			 "failed to read channel int at offset %u\n", offset);
+		return 0;
+	}
+	return v;
+}
+
 #define KEYCODE_TABLE_BYTES	256
 
 enum visorinput_device_type {
 	visorinput_keyboard,
 	visorinput_mouse,
+};
+static char *visorinput_device_type_name[] = {
+	"keyboard",
+	"mouse",
+};
+
+struct change_resolution_work {
+	struct work_struct work;
+	unsigned xres, yres;
 };
 
 /*
@@ -62,11 +99,15 @@ enum visorinput_device_type {
  * dev_get_drvdata() / dev_set_drvdata() for each struct device.
  */
 struct visorinput_devdata {
+	struct kref kref;
 	struct visor_device *dev;
 	struct rw_semaphore lock_visor_dev; /* lock for dev */
 	struct input_dev *visorinput_dev;
 	bool paused;
 	unsigned int opened;
+	enum visorinput_device_type devtype;
+	struct workqueue_struct *wq;
+	struct change_resolution_work change_resolution_work_data;
 	unsigned int keycode_table_bytes; /* size of following array */
 	/* for keyboard devices: visorkbd_keycode[] + visorkbd_ext_keycode[] */
 	unsigned char keycode_table[0];
@@ -227,10 +268,15 @@ static int visorinput_open(struct input_dev *visorinput_dev)
 		return -EINVAL;
 	}
 	devdata->opened++;
-	dev_dbg(&visorinput_dev->dev, "%s opened %d\n", __func__,
+	dev_dbg(&visorinput_dev->dev, "%s %s opened %d\n", __func__,
+		visorinput_device_type_name[devdata->devtype],
 		devdata->opened);
-	if (devdata->opened == 1)
+	if (devdata->opened == 1) {
+		dev_info(&visorinput_dev->dev, "%s %s enabling interrupts\n",
+			 __func__,
+			 visorinput_device_type_name[devdata->devtype]);
 		visorbus_enable_channel_interrupts(devdata->dev);
+	}
 	return 0;
 }
 
@@ -245,10 +291,16 @@ static void visorinput_close(struct input_dev *visorinput_dev)
 	}
 	if (devdata->opened) {
 		devdata->opened--;
-		dev_dbg(&visorinput_dev->dev, "%s closed %d\n", __func__,
+		dev_dbg(&visorinput_dev->dev, "%s %s closed %d\n", __func__,
+			visorinput_device_type_name[devdata->devtype],
 			devdata->opened);
-		if (devdata->opened == 0)
+		if (devdata->opened == 0) {
+			dev_info(&visorinput_dev->dev,
+				 "%s %s disabling interrupts\n",
+				 __func__,
+				 visorinput_device_type_name[devdata->devtype]);
 			visorbus_disable_channel_interrupts(devdata->dev);
+		}
 	} else
 		dev_err(&visorinput_dev->dev, "%s not open\n", __func__);
 }
@@ -270,6 +322,7 @@ register_client_keyboard(void *devdata,  /* opaque on purpose */
 	if (!visorinput_dev)
 		return NULL;
 
+	dev_dbg(&visorinput_dev->dev, "%s\n", __func__);
 	visorinput_dev->name = "visor Keyboard";
 	visorinput_dev->phys = "visorkbd:input0";
 	visorinput_dev->id.bustype = BUS_VIRTUAL;
@@ -302,21 +355,22 @@ register_client_keyboard(void *devdata,  /* opaque on purpose */
 		input_free_device(visorinput_dev);
 		return NULL;
 	}
+	dev_dbg(&visorinput_dev->dev, "%s input_dev=%p\n", __func__, visorinput_dev);
 	return visorinput_dev;
 }
 
 static struct input_dev *
-register_client_mouse(void *devdata /* opaque on purpose */)
+register_client_mouse(void *devdata /* opaque on purpose */,
+		      unsigned xres, unsigned yres)
 {
 	int error;
 	struct input_dev *visorinput_dev = NULL;
-	int xres, yres;
-	struct fb_info *fb0;
 
 	visorinput_dev = input_allocate_device();
 	if (!visorinput_dev)
 		return NULL;
 
+	dev_dbg(&visorinput_dev->dev, "%s %u %u\n", __func__, xres, yres);
 	visorinput_dev->name = "visor Mouse";
 	visorinput_dev->phys = "visormou:input0";
 	visorinput_dev->id.bustype = BUS_VIRTUAL;
@@ -329,14 +383,10 @@ register_client_mouse(void *devdata /* opaque on purpose */)
 	set_bit(BTN_RIGHT, visorinput_dev->keybit);
 	set_bit(BTN_MIDDLE, visorinput_dev->keybit);
 
-	if (registered_fb[0]) {
-		fb0 = registered_fb[0];
-		xres = fb0->var.xres_virtual;
-		yres = fb0->var.yres_virtual;
-	} else {
+	if (xres == 0)
 		xres = PIXELS_ACROSS_DEFAULT;
+	if (yres == 0)
 		yres = PIXELS_DOWN_DEFAULT;
-	}
 	input_set_abs_params(visorinput_dev, ABS_X, 0, xres, 0, 0);
 	input_set_abs_params(visorinput_dev, ABS_Y, 0, yres, 0, 0);
 
@@ -352,14 +402,97 @@ register_client_mouse(void *devdata /* opaque on purpose */)
 
 	input_set_capability(visorinput_dev, EV_REL, REL_WHEEL);
 
+	dev_dbg(&visorinput_dev->dev, "%s input_dev=%p\n", __func__, visorinput_dev);
 	return visorinput_dev;
 }
+
+static void
+unregister_client_input(struct input_dev *visorinput_dev)
+{
+	if (visorinput_dev)
+		input_unregister_device(visorinput_dev);
+}
+
+static void devdata_release(struct kref *kref)
+{
+	struct visorinput_devdata *devdata =
+		container_of(kref, struct visorinput_devdata, kref);
+	dev_dbg(&devdata->dev->device, "%s\n", __func__);
+	unregister_client_input(devdata->visorinput_dev);
+	if (devdata->wq) {
+		flush_workqueue(devdata->wq);
+		destroy_workqueue(devdata->wq);
+	}
+	kfree(devdata);
+}
+
+static struct visorinput_devdata *
+devdata_get(struct visorinput_devdata *devdata)
+{
+	kref_get(&devdata->kref);
+	return devdata;
+}
+
+static void devdata_put(struct visorinput_devdata *devdata)
+{
+	kref_put(&devdata->kref, devdata_release);
+}
+
+static void async_change_resolution(struct work_struct *work)
+{
+	struct input_dev *visorinput_dev;
+	struct change_resolution_work *p_change_resolution_work =
+		container_of(work, struct change_resolution_work, work);
+	struct visorinput_devdata *devdata =
+		container_of(p_change_resolution_work, struct visorinput_devdata,
+			     change_resolution_work_data);
+
+	down_write(&devdata->lock_visor_dev);
+
+	if (devdata->paused) /* don't touch device/channel when paused */
+		goto out;
+
+	visorinput_dev = devdata->visorinput_dev;
+	if (!visorinput_dev)
+		goto out_locked;
+
+	dev_warn(&devdata->dev->device, "trying to unregister\n");
+	unregister_client_input(visorinput_dev);
+	dev_warn(&devdata->dev->device, "unregistered\n");
+	/* input_set_abs_params is only effective prior to
+	 * input_register_device().
+	 */
+	visorinput_dev = devdata->visorinput_dev =
+		register_client_mouse(devdata,
+				      p_change_resolution_work->xres,
+				      p_change_resolution_work->yres);
+	if (!visorinput_dev)
+		dev_err(&devdata->dev->device,
+			"failed create of new mouse input dev\n");
+
+out_locked:
+	up_write(&devdata->lock_visor_dev);
+out:
+	devdata_put(devdata);  // from schedule_mouse_resolution_change()
+}
+
+static void schedule_mouse_resolution_change(struct visorinput_devdata *devdata,
+					     unsigned xres, unsigned yres)
+{
+	dev_dbg(&devdata->dev->device,"%s %u %u\n", __func__, xres, yres);
+        devdata->change_resolution_work_data.xres = xres;
+	devdata->change_resolution_work_data.yres = yres;
+	devdata_get(devdata);  // don't go away until work processed
+	queue_work(devdata->wq, &devdata->change_resolution_work_data.work);
+}
+
 
 static struct visorinput_devdata *
 devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 {
 	struct visorinput_devdata *devdata = NULL;
 	unsigned int extra_bytes = 0;
+	unsigned xres, yres;
 
 	if (devtype == visorinput_keyboard)
 		/* allocate room for devdata->keycode_table, filled in below */
@@ -368,6 +501,12 @@ devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 	if (!devdata)
 		return NULL;
 	devdata->dev = dev;
+	devdata->devtype = devtype;
+	devdata->wq = alloc_ordered_workqueue("visorinput", 0);
+	INIT_WORK(&devdata->change_resolution_work_data.work,
+		  async_change_resolution);
+	init_rwsem(&devdata->lock_visor_dev);
+	down_write(&devdata->lock_visor_dev);
 
 	/*
 	 * This is an input device in a client guest partition,
@@ -387,17 +526,33 @@ devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 			goto cleanups_register;
 		break;
 	case visorinput_mouse:
-		devdata->visorinput_dev = register_client_mouse(devdata);
+		xres = read_input_channel_uint
+			(dev,
+			 offsetof(struct spar_input_channel_protocol,
+				  mouse.x_resolution),
+			 sizeofmemb(struct spar_input_channel_protocol,
+				    mouse.x_resolution));
+		yres = read_input_channel_uint
+			(dev,
+			 offsetof(struct spar_input_channel_protocol,
+				  mouse.y_resolution),
+			 sizeofmemb(struct spar_input_channel_protocol,
+				    mouse.y_resolution));
+		devdata->visorinput_dev =
+			register_client_mouse(devdata, xres, yres);
 		if (!devdata->visorinput_dev)
 			goto cleanups_register;
 		break;
 	}
 
-	init_rwsem(&devdata->lock_visor_dev);
+	kref_init(&devdata->kref);
+	dev_set_drvdata(&dev->device, devdata);
+	up_write(&devdata->lock_visor_dev);
 
 	return devdata;
 
 cleanups_register:
+	up_write(&devdata->lock_visor_dev);
 	kfree(devdata);
 	return NULL;
 }
@@ -405,7 +560,6 @@ cleanups_register:
 static int
 visorinput_probe(struct visor_device *dev)
 {
-	struct visorinput_devdata *devdata = NULL;
 	uuid_le guid;
 	enum visorinput_device_type devtype;
 
@@ -416,18 +570,10 @@ visorinput_probe(struct visor_device *dev)
 		devtype = visorinput_keyboard;
 	else
 		return -ENODEV;
-	devdata = devdata_create(dev, devtype);
-	if (!devdata)
+	visorbus_disable_channel_interrupts(dev);
+	if (!devdata_create(dev, devtype))
 		return -ENOMEM;
-	dev_set_drvdata(&dev->device, devdata);
 	return 0;
-}
-
-static void
-unregister_client_input(struct input_dev *visorinput_dev)
-{
-	if (visorinput_dev)
-		input_unregister_device(visorinput_dev);
 }
 
 static void
@@ -444,12 +590,10 @@ visorinput_remove(struct visor_device *dev)
 	 * due to above, at this time no thread of execution will be
 	 * in visorinput_channel_interrupt()
 	 */
-
 	down_write(&devdata->lock_visor_dev);
 	dev_set_drvdata(&dev->device, NULL);
-	unregister_client_input(devdata->visorinput_dev);
 	up_write(&devdata->lock_visor_dev);
-	kfree(devdata);
+        devdata_put(devdata);
 }
 
 /*
@@ -538,6 +682,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 	struct input_dev *visorinput_dev;
 	int xmotion, ymotion, zmotion, button;
 	int i;
+	static long global_counter=0;
 
 	struct visorinput_devdata *devdata = dev_get_drvdata(&dev->device);
 
@@ -545,6 +690,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 		return;
 
 	down_write(&devdata->lock_visor_dev);
+
 	if (devdata->paused) /* don't touch device/channel when paused */
 		goto out_locked;
 
@@ -553,6 +699,13 @@ visorinput_channel_interrupt(struct visor_device *dev)
 		goto out_locked;
 
 	while (visorchannel_signalremove(dev->visorchannel, 0, &r)) {
+		global_counter++;
+		if ((global_counter % 10) == 0)
+			dev_warn(&dev->device, "processed %ld signals\n", global_counter);
+		if ((global_counter == 150) && (devdata->devtype == visorinput_mouse)) {
+			dev_warn(&dev->device, "simulating mouse resolution change\n");
+                        schedule_mouse_resolution_change(devdata, 800, 600);
+		}
 		scancode = r.activity.arg1;
 		keycode = scancode_to_keycode(scancode);
 		switch (r.activity.action) {
@@ -625,6 +778,18 @@ visorinput_channel_interrupt(struct visor_device *dev)
 			zmotion = r.activity.arg1;
 			input_report_rel(visorinput_dev, REL_WHEEL, -1);
 			input_sync(visorinput_dev);
+			break;
+		case inputaction_set_max_xy:
+			dev_info(&dev->device,
+				 "got inputaction_set_max_xy command");
+			/* we can NOT handle this inline, because this may go
+			 * thru a close() path, which will attempt to stop the
+			 * worker thread we are running on, which will end up
+			 * deadlocking
+			 */
+			schedule_mouse_resolution_change(devdata,
+							 r.activity.arg1,
+							 r.activity.arg2);
 			break;
 		}
 	}

@@ -59,6 +59,9 @@ enum ultra_inputaction {
 	inputaction_last
 };
 
+#define PIXELS_ACROSS_DEFAULT   1024 /* inputaction_set_max_xy max_x default */
+#define PIXELS_DOWN_DEFAULT      768 /* inputaction_set_max_xy max_y default */
+
 struct ultra_inputactivity {
 	u16 action;
 	u16 arg1;
