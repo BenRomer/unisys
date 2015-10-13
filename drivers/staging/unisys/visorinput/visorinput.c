@@ -167,7 +167,8 @@ static const unsigned char visorkbd_keycode[KEYCODE_TABLE_BYTES] = {
 	[82] = KEY_KP0,
 	[83] = KEY_KPDOT,
 	[86] = KEY_102ND, /* enables UK backslash+pipe key,
-			   * and FR lessthan+greaterthan key */
+			   * and FR lessthan+greaterthan key
+			   */
 	[87] = KEY_F11,
 	[88] = KEY_F12,
 	[90] = KEY_KPLEFTPAREN,
@@ -624,7 +625,7 @@ out_locked:
 
 static int
 visorinput_pause(struct visor_device *dev,
-	       visorbus_state_complete_func complete_func)
+		 visorbus_state_complete_func complete_func)
 {
 	int rc;
 	struct visorinput_devdata *devdata = dev_get_drvdata(&dev->device);
@@ -650,7 +651,7 @@ out:
 
 static int
 visorinput_resume(struct visor_device *dev,
-		visorbus_state_complete_func complete_func)
+		  visorbus_state_complete_func complete_func)
 {
 	int rc;
 	struct visorinput_devdata *devdata = dev_get_drvdata(&dev->device);
