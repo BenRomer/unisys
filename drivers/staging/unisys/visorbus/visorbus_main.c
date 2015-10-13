@@ -34,8 +34,8 @@ static int visorbus_debugref;
 #define SERIALLOOPBACKCHANADDR (100 * 1024 * 1024)
 
 #define CURRENT_FILE_PC VISOR_BUS_PC_visorbus_main_c
-#define POLLJIFFIES_TESTWORK         100
-#define POLLJIFFIES_NORMALCHANNEL     10
+#define POLLJIFFIES_TESTWORK         msecs_to_jiffies(100)
+#define POLLJIFFIES_NORMALCHANNEL     msecs_to_jiffies(2)
 
 static int busreg_rc = -ENODEV; /* stores the result from bus registration */
 
