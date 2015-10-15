@@ -415,6 +415,8 @@ devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 	if (!devdata)
 		return NULL;
 	devdata->dev = dev;
+	init_rwsem(&devdata->lock_visor_dev);
+	down_write(&devdata->lock_visor_dev);
 
 	/*
 	 * This is an input device in a client guest partition,
@@ -453,12 +455,14 @@ devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 		break;
 	}
 
-	init_rwsem(&devdata->lock_visor_dev);
 	kref_init(&devdata->kref);
+	dev_set_drvdata(&dev->device, devdata);
+	up_write(&devdata->lock_visor_dev);
 
 	return devdata;
 
 cleanups_register:
+	up_write(&devdata->lock_visor_dev);
 	kfree(devdata);
 	return NULL;
 }
@@ -466,7 +470,6 @@ cleanups_register:
 static int
 visorinput_probe(struct visor_device *dev)
 {
-	struct visorinput_devdata *devdata = NULL;
 	uuid_le guid;
 	enum visorinput_device_type devtype;
 
@@ -477,10 +480,9 @@ visorinput_probe(struct visor_device *dev)
 		devtype = visorinput_keyboard;
 	else
 		return -ENODEV;
-	devdata = devdata_create(dev, devtype);
-	if (!devdata)
+	visorbus_disable_channel_interrupts(dev);
+	if (!devdata_create(dev, devtype))
 		return -ENOMEM;
-	dev_set_drvdata(&dev->device, devdata);
 	return 0;
 }
 
