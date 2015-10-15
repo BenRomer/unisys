@@ -392,6 +392,7 @@ static void devdata_release(struct kref *kref)
 {
 	struct visorinput_devdata *devdata =
 		container_of(kref, struct visorinput_devdata, kref);
+	dev_dbg(&devdata->dev->device, "releasing resources\n");
 	unregister_client_input(devdata->visorinput_dev);
 	if (devdata->wq) {
 		flush_workqueue(devdata->wq);
@@ -444,6 +445,8 @@ static void async_change_resolution(struct work_struct *work)
 			"failed create of new mouse input dev for new resolution %u,%u\n",
 			p_change_resolution_work->xres,
 			p_change_resolution_work->yres);
+	dev_info(&devdata->dev->device, "created mouse %s\n",
+		 dev_name(&devdata->visorinput_dev->dev));
 
 out_locked:
 	up_write(&devdata->lock_visor_dev);
@@ -496,6 +499,8 @@ devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 			(devdata, devdata->keycode_table);
 		if (!devdata->visorinput_dev)
 			goto cleanups_register;
+		dev_info(&devdata->dev->device, "created keyboard %s\n",
+			 dev_name(&devdata->visorinput_dev->dev));
 		break;
 	case visorinput_mouse:
 		xres = read_input_channel_uint
@@ -514,6 +519,8 @@ devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 			register_client_mouse(devdata, xres, yres);
 		if (!devdata->visorinput_dev)
 			goto cleanups_register;
+		dev_info(&devdata->dev->device, "created mouse %s\n",
+			 dev_name(&devdata->visorinput_dev->dev));
 		break;
 	}
 
@@ -746,6 +753,10 @@ visorinput_channel_interrupt(struct visor_device *dev)
 					"mouse resolution change for NON-mouse device!\n");
 				continue;
 			}
+			dev_info(&dev->device,
+				 "mouse resolution change to %ux%u\n",
+				 r.activity.arg1,
+				 r.activity.arg2);
 			/*
 			 * we can NOT handle this inline, because this may go
 			 * thru a close() path, which will attempt to stop the
