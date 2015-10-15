@@ -28,6 +28,7 @@
 #include <linux/uaccess.h>
 #include <linux/kernel.h>
 #include <linux/uuid.h>
+#include <linux/workqueue.h>
 
 #include "version.h"
 #include "visorbus.h"
@@ -86,6 +87,11 @@ enum visorinput_device_type {
 	visorinput_mouse,
 };
 
+struct change_resolution_work {
+	struct work_struct work;
+	unsigned xres, yres;
+};
+
 /*
  * This is the private data that we store for each device.
  * A pointer to this struct is maintained via
@@ -97,6 +103,8 @@ struct visorinput_devdata {
 	struct rw_semaphore lock_visor_dev; /* lock for dev */
 	struct input_dev *visorinput_dev;
 	bool paused;
+	struct workqueue_struct *wq;
+	struct change_resolution_work change_resolution_work_data;
 	unsigned int keycode_table_bytes; /* size of following array */
 	/* for keyboard devices: visorkbd_keycode[] + visorkbd_ext_keycode[] */
 	unsigned char keycode_table[0];
@@ -384,6 +392,10 @@ static void devdata_release(struct kref *kref)
 	struct visorinput_devdata *devdata =
 		container_of(kref, struct visorinput_devdata, kref);
 	unregister_client_input(devdata->visorinput_dev);
+	if (devdata->wq) {
+		flush_workqueue(devdata->wq);
+		destroy_workqueue(devdata->wq);
+	}
 	kfree(devdata);
 }
 
@@ -401,6 +413,51 @@ static void devdata_put(struct visorinput_devdata *devdata)
 		kref_put(&devdata->kref, devdata_release);
 }
 
+static void async_change_resolution(struct work_struct *work)
+{
+	struct change_resolution_work *p_change_resolution_work =
+		container_of(work, struct change_resolution_work, work);
+	struct visorinput_devdata *devdata =
+		container_of(p_change_resolution_work,
+			     struct visorinput_devdata,
+			     change_resolution_work_data);
+
+	down_write(&devdata->lock_visor_dev);
+
+	if (devdata->paused) /* don't touch device/channel when paused */
+		goto out_locked;
+	if (!devdata->visorinput_dev)
+		goto out_locked;
+
+	unregister_client_input(devdata->visorinput_dev);
+	/*
+	 * input_set_abs_params is only effective prior to
+	 * input_register_device().
+	 */
+	devdata->visorinput_dev =
+		register_client_mouse(devdata,
+				      p_change_resolution_work->xres,
+				      p_change_resolution_work->yres);
+	if (!devdata->visorinput_dev)
+		dev_err(&devdata->dev->device,
+			"failed create of new mouse input dev for new resolution %u,%u\n",
+			p_change_resolution_work->xres,
+			p_change_resolution_work->yres);
+
+out_locked:
+	up_write(&devdata->lock_visor_dev);
+	devdata_put(devdata);  /* from schedule_mouse_resolution_change() */
+}
+
+static void schedule_mouse_resolution_change(struct visorinput_devdata *devdata,
+					     unsigned xres, unsigned yres)
+{
+	devdata->change_resolution_work_data.xres = xres;
+	devdata->change_resolution_work_data.yres = yres;
+	devdata_get(devdata);  /* don't go away until work processed */
+	queue_work(devdata->wq, &devdata->change_resolution_work_data.work);
+}
+
 static struct visorinput_devdata *
 devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 {
@@ -415,6 +472,9 @@ devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 	if (!devdata)
 		return NULL;
 	devdata->dev = dev;
+	devdata->wq = alloc_ordered_workqueue("visorinput", 0);
+	INIT_WORK(&devdata->change_resolution_work_data.work,
+		  async_change_resolution);
 	init_rwsem(&devdata->lock_visor_dev);
 	down_write(&devdata->lock_visor_dev);
 
@@ -677,6 +737,17 @@ visorinput_channel_interrupt(struct visor_device *dev)
 			zmotion = r.activity.arg1;
 			input_report_rel(visorinput_dev, REL_WHEEL, -1);
 			input_sync(visorinput_dev);
+			break;
+		case inputaction_set_max_xy:
+			/*
+			 * we can NOT handle this inline, because this may go
+			 * thru a close() path, which will attempt to stop the
+			 * worker thread we are running on, which will end up
+			 * deadlocking
+			 */
+			schedule_mouse_resolution_change(devdata,
+							 r.activity.arg1,
+							 r.activity.arg2);
 			break;
 		}
 	}
