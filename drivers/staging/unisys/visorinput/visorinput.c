@@ -62,6 +62,7 @@ enum visorinput_device_type {
  * dev_get_drvdata() / dev_set_drvdata() for each struct device.
  */
 struct visorinput_devdata {
+	struct kref kref;
 	struct visor_device *dev;
 	struct rw_semaphore lock_visor_dev; /* lock for dev */
 	struct input_dev *visorinput_dev;
@@ -346,6 +347,35 @@ register_client_mouse(void *devdata /* opaque on purpose */)
 	return visorinput_dev;
 }
 
+static void
+unregister_client_input(struct input_dev *visorinput_dev)
+{
+	if (visorinput_dev)
+		input_unregister_device(visorinput_dev);
+}
+
+static void devdata_release(struct kref *kref)
+{
+	struct visorinput_devdata *devdata =
+		container_of(kref, struct visorinput_devdata, kref);
+	unregister_client_input(devdata->visorinput_dev);
+	kfree(devdata);
+}
+
+static struct visorinput_devdata *
+devdata_get(struct visorinput_devdata *devdata)
+{
+	if (devdata)
+		kref_get(&devdata->kref);
+	return devdata;
+}
+
+static void devdata_put(struct visorinput_devdata *devdata)
+{
+	if (devdata)
+		kref_put(&devdata->kref, devdata_release);
+}
+
 static struct visorinput_devdata *
 devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 {
@@ -385,6 +415,7 @@ devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 	}
 
 	init_rwsem(&devdata->lock_visor_dev);
+	kref_init(&devdata->kref);
 
 	return devdata;
 
@@ -415,13 +446,6 @@ visorinput_probe(struct visor_device *dev)
 }
 
 static void
-unregister_client_input(struct input_dev *visorinput_dev)
-{
-	if (visorinput_dev)
-		input_unregister_device(visorinput_dev);
-}
-
-static void
 visorinput_remove(struct visor_device *dev)
 {
 	struct visorinput_devdata *devdata = dev_get_drvdata(&dev->device);
@@ -438,9 +462,8 @@ visorinput_remove(struct visor_device *dev)
 
 	down_write(&devdata->lock_visor_dev);
 	dev_set_drvdata(&dev->device, NULL);
-	unregister_client_input(devdata->visorinput_dev);
 	up_write(&devdata->lock_visor_dev);
-	kfree(devdata);
+	devdata_put(devdata);
 }
 
 /*
@@ -526,7 +549,8 @@ visorinput_channel_interrupt(struct visor_device *dev)
 	int xmotion, ymotion, zmotion, button;
 	int i;
 
-	struct visorinput_devdata *devdata = dev_get_drvdata(&dev->device);
+	struct visorinput_devdata *devdata =
+		devdata_get(dev_get_drvdata(&dev->device));
 
 	if (!devdata)
 		return;
@@ -616,6 +640,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 		}
 	}
 out_locked:
+	devdata_put(devdata);
 	up_write(&devdata->lock_visor_dev);
 }
 
