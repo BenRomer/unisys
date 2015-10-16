@@ -726,9 +726,9 @@ dev_periodic_work(void *xdev)
 	spin_lock_irqsave(&dev->visordriver_callback_lock, flags);
 	if (drv->channel_interrupt)
 		drv->channel_interrupt(dev);
-	spin_unlock_irqrestore(&dev->visordriver_callback_lock, flags);
-	if (!visor_periodic_work_nextperiod(dev->periodic_work))
+	else if (!visor_periodic_work_nextperiod(dev->periodic_work))
 		put_device(&dev->device);
+	spin_unlock_irqrestore(&dev->visordriver_callback_lock, flags);
 }
 
 static void
@@ -954,6 +954,8 @@ visorbus_rearm_channel_interrupts(struct visor_device *dev)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
+	else if (!visor_periodic_work_nextperiod(dev->periodic_work))
+		put_device(&dev->device);
 }
 EXPORT_SYMBOL_GPL(visorbus_rearm_channel_interrupts);
 
