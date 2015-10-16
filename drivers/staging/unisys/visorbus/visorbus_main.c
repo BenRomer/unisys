@@ -37,7 +37,7 @@ static int visorbus_debugref;
 
 #define CURRENT_FILE_PC VISOR_BUS_PC_visorbus_main_c
 #define POLLJIFFIES_TESTWORK         msecs_to_jiffies(100)
-#define POLLJIFFIES_NORMALCHANNEL     msecs_to_jiffies(2)
+#define POLLJIFFIES_NORMALCHANNEL     msecs_to_jiffies(1)
 
 static int busreg_rc = -ENODEV; /* stores the result from bus registration */
 
