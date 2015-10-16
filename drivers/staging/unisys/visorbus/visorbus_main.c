@@ -725,9 +725,9 @@ dev_periodic_work(void *xdev)
 	down(&dev->visordriver_callback_lock);
 	if (drv->channel_interrupt)
 		drv->channel_interrupt(dev);
-	up(&dev->visordriver_callback_lock);
-	if (!visor_periodic_work_nextperiod(dev->periodic_work))
+	else if (!visor_periodic_work_nextperiod(dev->periodic_work))
 		put_device(&dev->device);
+	up(&dev->visordriver_callback_lock);
 }
 
 static void
@@ -950,6 +950,8 @@ visorbus_rearm_channel_interrupts(struct visor_device *dev)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
+	else if (!visor_periodic_work_nextperiod(dev->periodic_work))
+		put_device(&dev->device);
 }
 EXPORT_SYMBOL_GPL(visorbus_rearm_channel_interrupts);
 
