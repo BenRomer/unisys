@@ -720,8 +720,12 @@ static void
 dev_periodic_work(void *xdev)
 {
 	struct visor_device *dev = xdev;
-	struct visor_driver *drv = to_visor_driver(dev->device.driver);
+	struct visor_driver *drv = NULL;
 	unsigned long flags;
+
+	if (!dev) 
+		return;
+	drv = to_visor_driver(dev->device.driver);
 
 	spin_lock_irqsave(&dev->visordriver_callback_lock, flags);
 	if (drv->channel_interrupt)
