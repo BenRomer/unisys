@@ -760,12 +760,10 @@ visordriver_probe_device(struct device *xdev)
 	int rc;
 	struct visor_driver *drv;
 	struct visor_device *dev;
-	unsigned long flags;
 
 	drv = to_visor_driver(xdev->driver);
 	dev = to_visor_device(xdev);
 	
-	spin_lock_irqsave(&dev->visordriver_callback_lock, flags);
 	dev->being_removed = false;
 	/*
 	 * ensure that the dev->being_removed flag is cleared before
@@ -774,7 +772,6 @@ visordriver_probe_device(struct device *xdev)
 	wmb();
 	get_device(&dev->device);
 	if (!drv->probe) {
-		spin_unlock_irqrestore(&dev->visordriver_callback_lock, flags);
 		rc = -1;
 		goto away;
 	}
@@ -783,7 +780,6 @@ visordriver_probe_device(struct device *xdev)
 		goto away;
 
 	fix_vbus_dev_info(dev);
-	spin_unlock_irqrestore(&dev->visordriver_callback_lock, flags);
 	rc = 0;
 away:
 	if (rc != 0)
@@ -800,11 +796,9 @@ visordriver_remove_device(struct device *xdev)
 {
 	struct visor_device *dev;
 	struct visor_driver *drv;
-	unsigned long flags;
 
 	dev = to_visor_device(xdev);
 	drv = to_visor_driver(xdev->driver);
-	spin_lock_irqsave(&dev->visordriver_callback_lock, flags);
 	dev->being_removed = true;
 	/*
 	 * ensure that the dev->being_removed flag is set before we start the
@@ -815,7 +809,6 @@ visordriver_remove_device(struct device *xdev)
 		if (drv->remove)
 			drv->remove(dev);
 	}
-	spin_unlock_irqrestore(&dev->visordriver_callback_lock, flags);
 	dev_stop_periodic_work(dev);
 	devmajorminor_remove_all_files(dev);
 
@@ -987,7 +980,6 @@ static irqreturn_t
 visorbus_isr(int irq, void *dev_id)
 {
 	struct visor_device *dev = (struct visor_device *)dev_id;
-	struct visor_driver *drv = to_visor_driver(dev->device.driver);
 
 	/* Disable the interrupt in hardware for this device.
 	 * When the device is done handling the interrupt, it has
@@ -997,12 +989,8 @@ visorbus_isr(int irq, void *dev_id)
 	visorchannel_clear_sig_features(dev->visorchannel,
 					dev->recv_queue,
 					ULTRA_CHANNEL_ENABLE_INTS);
-	if (drv->channel_interrupt) {
-		drv->channel_interrupt(dev);
-		return IRQ_HANDLED;
-	}
-
-	return IRQ_NONE;
+	dev_periodic_work(dev);
+	return IRQ_HANDLED;
 }
 
 int visorbus_set_channel_features(struct visor_device *dev, u64 feature_bits)
