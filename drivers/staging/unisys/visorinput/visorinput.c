@@ -468,7 +468,9 @@ static void schedule_mouse_resolution_change(struct visorinput_devdata *devdata,
 	devdata->change_resolution_work_data.xres = xres;
 	devdata->change_resolution_work_data.yres = yres;
 	devdata_get(devdata);  /* don't go away until work processed */
-	queue_work(devdata->wq, &devdata->change_resolution_work_data.work);
+	if (!queue_work(devdata->wq,
+			&devdata->change_resolution_work_data.work))
+		devdata_put(devdata);  /* no work scheduled */
 }
 
 static struct visorinput_devdata *
