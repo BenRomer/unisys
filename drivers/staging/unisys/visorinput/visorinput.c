@@ -102,6 +102,7 @@ struct visorinput_devdata {
 	struct visor_device *dev;
 	enum visorinput_device_type devtype;
 	struct rw_semaphore lock_visor_dev; /* lock for dev */
+	spinlock_t lock_isr; /* for data accessed in isr */
 	struct input_dev *visorinput_dev;
 	bool paused;
 	struct workqueue_struct *wq;
@@ -417,6 +418,7 @@ static void devdata_put(struct visorinput_devdata *devdata)
 
 static void async_change_resolution(struct work_struct *work)
 {
+	struct input_dev *visorinput_dev = NULL;
 	struct change_resolution_work *p_change_resolution_work =
 		container_of(work, struct change_resolution_work, work);
 	struct visorinput_devdata *devdata =
@@ -425,13 +427,20 @@ static void async_change_resolution(struct work_struct *work)
 			     change_resolution_work_data);
 
 	down_write(&devdata->lock_visor_dev);
+	spin_lock(&devdata->lock_isr);
 
-	if (devdata->paused) /* don't touch device/channel when paused */
-		goto out_locked;
-	if (!devdata->visorinput_dev)
-		goto out_locked;
+	/* devdata->visorinput_dev can only go NULL when lock_isr is held */
 
-	unregister_client_input(devdata->visorinput_dev);
+	if (devdata->paused || (!devdata->visorinput_dev)) {
+		spin_unlock(&devdata->lock_isr);
+		goto out;
+	}
+	visorinput_dev = devdata->visorinput_dev; /* can't unreg with lock */
+	devdata->visorinput_dev = NULL;
+
+	spin_unlock(&devdata->lock_isr);
+
+	unregister_client_input(visorinput_dev);
 	/*
 	 * input_set_abs_params is only effective prior to
 	 * input_register_device().
@@ -448,7 +457,7 @@ static void async_change_resolution(struct work_struct *work)
 	dev_info(&devdata->dev->device, "created mouse %s\n",
 		 dev_name(&devdata->visorinput_dev->dev));
 
-out_locked:
+out:
 	up_write(&devdata->lock_visor_dev);
 	devdata_put(devdata);  /* from schedule_mouse_resolution_change() */
 }
@@ -481,6 +490,7 @@ devdata_create(struct visor_device *dev, enum visorinput_device_type devtype)
 	INIT_WORK(&devdata->change_resolution_work_data.work,
 		  async_change_resolution);
 	init_rwsem(&devdata->lock_visor_dev);
+	spin_lock_init(&devdata->lock_isr);
 	down_write(&devdata->lock_visor_dev);
 
 	/*
@@ -665,7 +675,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 	if (!devdata)
 		return;
 
-	down_write(&devdata->lock_visor_dev);
+	spin_lock(&devdata->lock_isr);
 	if (devdata->paused) /* don't touch device/channel when paused */
 		goto out_locked;
 
@@ -771,7 +781,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 	}
 out_locked:
 	devdata_put(devdata);
-	up_write(&devdata->lock_visor_dev);
+	spin_unlock(&devdata->lock_isr);
 }
 
 static int
