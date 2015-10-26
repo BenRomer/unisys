@@ -1061,16 +1061,35 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 					     u32 queue)
 {
 	int err = 0;
-	int int_vector;
+	int gsi_vector, irq;
 
-	int_vector = dev->intr.recv_irq_handle & INTERRUPT_VECTOR_MASK;
+	gsi_vector = dev->intr.recv_irq_handle & INTERRUPT_VECTOR_MASK;
 
-	err = request_irq(int_vector, visorbus_isr, IRQF_SHARED,
-			  dev->name, dev);
+	irq = acpi_register_gsi(&dev->device, gsi_vector,
+				ACPI_LEVEL_SENSITIVE,
+				ACPI_ACTIVE_LOW);
+	if (irq < 0) {
+		dev_err(&dev->device, "failed to register gsi &d, err = %d",
+			gsi_vector, irq);
+		goto stay_in_polling;
+	}
+
+	err = request_irq(irq, visorbus_isr, IRQF_SHARED, dev->name, dev);
 	if (err < 0) {
 		dev_err(&dev->device,
 			" failed to request irq, continuing to poll. err = %d",
 			err);
+		goto stay_in_polling;
+	}
+
+	dev_info(&dev->device, "IRQ=%d registered\n", irq);
+
+	err = visorbus_set_channel_features(dev, ULTRA_IO_DRIVER_ENABLES_INTS |
+					    ULTRA_ID_DRIVER_DISABLES_INTS);
+	if (err) {
+		dev_err(&dev->device,
+			"&s failed to set ENALBES ints from chan (%d)\n",
+			__func__, err);
 		goto stay_in_polling;
 	}
 
