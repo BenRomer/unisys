@@ -134,8 +134,8 @@ enum event_pc {			/* POSTCODE event identifier tuples */
 
 #define POSTCODE_SEVERITY_ERR DIAG_SEVERITY_ERR
 #define POSTCODE_SEVERITY_WARNING DIAG_SEVERITY_WARNING
-/* TODO-> Info currently doesn't show, so we set info=warning */
 #define POSTCODE_SEVERITY_INFO DIAG_SEVERITY_PRINT
+/* TODO-> Info currently doesn't show, so we set info=warning */
 
 /* example call of POSTCODE_LINUX_2(VISOR_CHIPSET_PC, POSTCODE_SEVERITY_ERR);
  * Please also note that the resulting postcode is in hex, so if you are
