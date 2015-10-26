@@ -1070,7 +1070,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 				ACPI_LEVEL_SENSITIVE,
 				ACPI_ACTIVE_LOW);
 	if (irq < 0) {
-		dev_err(&dev->device, "failed to register gsi &d, err = %d",
+		dev_err(&dev->device, "failed to register gsi %d, err = %d",
 			gsi_vector, irq);
 		goto stay_in_polling;
 	}
@@ -1089,7 +1089,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 					    ULTRA_IO_DRIVER_DISABLES_INTS);
 	if (err) {
 		dev_err(&dev->device,
-			"&s failed to set ENALBES ints from chan (%d)\n",
+			"%s failed to set ENALBES ints from chan (%d)\n",
 			__func__, err);
 		goto stay_in_polling;
 	}
