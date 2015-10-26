@@ -1164,7 +1164,7 @@ create_visor_device(struct visor_device *dev)
 	 * wants to use interrupts, it's probe can call
 	 * visorbus_register_for_interrupts.
 	 */
-	rc = visorbus_set_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING ||
+	rc = visorbus_set_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING |
 					   ULTRA_IO_DRIVER_DISABLES_INTS);
 	if (rc) {
 		dev_err(&dev->device,
