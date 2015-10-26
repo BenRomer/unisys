@@ -14,6 +14,7 @@
  * details.
  */
 
+#include <linux/acpi.h>
 #include <linux/interrupt.h>
 #include <linux/uuid.h>
 
@@ -1085,7 +1086,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 	dev_info(&dev->device, "IRQ=%d registered\n", irq);
 
 	err = visorbus_set_channel_features(dev, ULTRA_IO_DRIVER_ENABLES_INTS |
-					    ULTRA_ID_DRIVER_DISABLES_INTS);
+					    ULTRA_IO_DRIVER_DISABLES_INTS);
 	if (err) {
 		dev_err(&dev->device,
 			"&s failed to set ENALBES ints from chan (%d)\n",
