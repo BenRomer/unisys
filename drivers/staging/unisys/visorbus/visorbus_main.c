@@ -16,6 +16,7 @@
 
 #include <linux/interrupt.h>
 #include <linux/uuid.h>
+#include <linux/acpi.h>
 
 #include "visorbus.h"
 #include "visorbus_private.h"
@@ -1057,11 +1058,24 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 					     u32 queue)
 {
 	int err = 0;
-	int int_vector;
+	int int_vector, irq;
 
 	int_vector = dev->intr.recv_irq_handle & INTERRUPT_VECTOR_MASK;
 
-	err = request_irq(int_vector, visorbus_isr, IRQF_SHARED,
+	dev_err(&dev->device, " not even trying");
+	goto stay_in_polling;
+	irq = acpi_register_gsi(&dev->device,
+				int_vector /* gsi */,
+				ACPI_LEVEL_SENSITIVE,
+				ACPI_ACTIVE_LOW);
+	if (irq < 0) {
+		dev_err(&dev->device,
+			" failed to register gsi %d; err = %d", int_vector, irq);
+		goto stay_in_polling;
+	}
+	dev_info(&dev->device, "GSI=%d, IRQ=%d\n", int_vector, irq);
+
+	err = request_irq(irq, visorbus_isr, IRQF_SHARED,
 			  dev->name, dev);
 	if (err < 0) {
 		dev_err(&dev->device,
@@ -1069,6 +1083,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 			err);
 		goto stay_in_polling;
 	}
+	dev_info(&dev->device, "IRQ=%d registered\n", irq);
 
 	err = visorbus_clear_channel_features(dev,
 					      ULTRA_IO_CHANNEL_IS_POLLING |
