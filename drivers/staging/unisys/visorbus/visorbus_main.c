@@ -1070,10 +1070,12 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 		goto stay_in_polling;
 	}
 
-	err = visorbus_clear_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING);
+	err = visorbus_clear_channel_features(dev,
+					      ULTRA_IO_CHANNEL_IS_POLLING |
+					      ULTRA_IO_DRIVER_DISABLES_INTS);
 	if (err) {
 		dev_err(&dev->device,
-			"%s failed to clear POOLING flag from chan (%d)\n",
+			"%s failed to clear POLLING flag from chan (%d)\n",
 			__func__, err);
 		goto stay_in_polling;
 	}
@@ -1141,7 +1143,7 @@ create_visor_device(struct visor_device *dev)
 	 * wants to use interrupts, it's probe can call
 	 * visorbus_register_for_interrupts.
 	 */
-	rc = visorbus_set_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING ||
+	rc = visorbus_set_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING |
 					   ULTRA_IO_DRIVER_DISABLES_INTS);
 	if (rc) {
 		dev_err(&dev->device,
