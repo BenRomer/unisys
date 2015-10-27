@@ -747,6 +747,23 @@ dev_stop_periodic_work(struct visor_device *dev)
 		put_device(&dev->device);
 }
 
+int visorbus_set_channel_state(struct visor_device *dev, u32 cli_state)
+{
+	int channel_offset = 0, err = 0;
+
+	channel_offset = offsetof(struct channel_header, cli_state_os);
+
+	err = visorbus_write_channel(dev, channel_offset, &cli_state, 4);
+	if (err) {
+		dev_err(&dev->device,
+			"%s failed to set client_state_os from chan (%d)\n",
+			__func__, err);
+		return err;
+	}
+
+	return err;
+}
+
 /** This is called automatically upon adding a visor_device (device_add), or
  *  adding a visor_driver (visorbus_register_visor_driver), but only after
  *  visorbus_match has returned 1 to indicate a successful match between
@@ -769,6 +786,7 @@ visordriver_probe_device(struct device *xdev)
 	 */
 	wmb();
 	get_device(&dev->device);
+	visorbus_set_channel_state(dev, CHANNELCLI_OWNED);
 	if (!drv->probe) {
 		up(&dev->visordriver_callback_lock);
 		rc = -1;
@@ -782,8 +800,10 @@ visordriver_probe_device(struct device *xdev)
 	up(&dev->visordriver_callback_lock);
 	rc = 0;
 away:
-	if (rc != 0)
+	if (rc != 0) {
+		visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
 		put_device(&dev->device);
+	}
 	return rc;
 }
 
@@ -814,6 +834,7 @@ visordriver_remove_device(struct device *xdev)
 	dev_stop_periodic_work(dev);
 	devmajorminor_remove_all_files(dev);
 
+	visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
 	put_device(&dev->device);
 
 	return 0;
@@ -1036,6 +1057,8 @@ create_visor_device(struct visor_device *dev)
 	}
 
 	list_add_tail(&dev->list_all, &list_all_device_instances);
+
+	visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
 	return 0;
 
 away_register:
@@ -1388,6 +1411,9 @@ resume_state_change_complete(struct visor_device *dev, int status)
 	if (!chipset_responders.device_resume) /* this can never happen! */
 		return;
 
+	if (status < 0)
+		visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
+
 	/* Notify the chipset driver that the resume is complete,
 	 * which will presumably want to send some sort of response to
 	 * the initiator. */
@@ -1409,6 +1435,7 @@ initiate_chipset_device_pause_resume(struct visor_device *dev, bool is_pause)
 		notify_func = chipset_responders.device_pause;
 	else
 		notify_func = chipset_responders.device_resume;
+
 	if (!notify_func)
 		goto away;
 
@@ -1443,6 +1470,7 @@ initiate_chipset_device_pause_resume(struct visor_device *dev, bool is_pause)
 			goto away;
 
 		dev->resuming = true;
+		visorbus_set_channel_state(dev, CHANNELCLI_OWNED);
 		x = drv->resume(dev, resume_state_change_complete);
 	}
 	if (x < 0) {
@@ -1455,6 +1483,8 @@ initiate_chipset_device_pause_resume(struct visor_device *dev, bool is_pause)
 	rc = 0;
 away:
 	if (rc < 0) {
+		if (!is_pause)
+			visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
 		if (notify_func)
 			(*notify_func)(dev, rc);
 	}
