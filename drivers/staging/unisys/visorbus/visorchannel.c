@@ -394,6 +394,11 @@ signalremove_inner(struct visorchannel *channel, u32 queue, void *msg)
 {
 	struct signal_queue_header sig_hdr;
 
+	if (!channel) { 
+		printk("ERROR NO CHANNEL\n");
+		return false;
+	}
+
 	if (!sig_read_header(channel, queue, &sig_hdr))
 		return false;
 	if (sig_hdr.head == sig_hdr.tail)
@@ -568,12 +573,12 @@ visorchannel_clear_or_set_sig_features(struct visorchannel *channel,
 	unsigned int offset = SIG_QUEUE_OFFSET(&channel->chan_hdr, queue);
 	struct signal_queue_header sig_hdr;
 
-	if (!sig_read_header(channel, queuee, &sig_hdr))
+	if (!sig_read_header(channel, queue, &sig_hdr))
 		return;
 	sig_hdr.features = (is_set) ? sig_hdr.features | features :
 			   sig_hdr.features & !features;
 	mb(); /* required to sync channel with IOSP */
-	SIG_WRITE_FIELD(channel, queue, &sig_hdr, feature);
+	SIG_WRITE_FIELD(channel, queue, &sig_hdr, features);
 }
 
 void
