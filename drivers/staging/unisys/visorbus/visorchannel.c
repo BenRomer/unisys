@@ -540,35 +540,9 @@ visorchannel_signalqueue_max_slots(struct visorchannel *channel, u32 queue)
 EXPORT_SYMBOL_GPL(visorchannel_signalqueue_max_slots);
 
 /**
- *	atomic_clear_or_set_bits_64
- *
- *	Atomically clear or set bits within a 64-bit word
- *	@tgt: a pointer to the 64-bit word to be modified.
- *	@bit: a bit mask, usage based on is_set flag;
- *	@is_set: if is_set true, 1 bit indicated which bits
- *		 you want to set within tgt
- *		 if is_set false, 1 bits indicate which bits
- *		 you want to clear within tgt
- *
- *	Returns void
- */
-void
-atomic_clear_or_set_bits_64(u64 *tgt, u64 bits, bool is_set)
-{
-	u64 i;
-	u64 j;
-
-	j = readq(tgt);
-	do {
-		i = j;
-		j = cmpxchg64(tgt, i, (is_set) ? (i | bits) : (i & ~bits));
-	} while (i != j);
-}
-
-/**
  *	visorchannel_clear_or_set_sig_features
  *
- *	Atomically clear or set bits within the 64-bit features word for the
+ *	Clear or set bits within the 64-bit features word for the
  *	specified channel and queue.
  *	@channel: the channel to modify features for.
  *	@queue: the queue number to modify features for.
@@ -582,10 +556,15 @@ void
 visorchannel_clear_or_set_sig_features(struct visorchannel *channel,
 				       u32 queue, u64 features, bool is_set)
 {
-	u64 *tgt = (u64 *)((u8 *)channel +
-				SIG_QUEUE_OFFSET(&channel->chan_hdr, queue) +
-				offsetof(struct signal_queue_header, features));
-	atomic_clear_or_set_bits_64(tgt, features, is_set);
+	unsigned int offset = SIG_QUEUE_OFFSET(&channel->chan_hdr, queue);
+	struct signal_queue_header sig_hdr;
+
+	if (!sig_read_header(channel, queuee, &sig_hdr))
+		return;
+	sig_hdr.features = (is_set) ? sig_hdr.features | features :
+			   sig_hdr.features & !features;
+	mb(); /* required to sync channel with IOSP */
+	SIG_WRITE_FIELD(channel, queue, &sig_hdr, feature);
 }
 
 void
