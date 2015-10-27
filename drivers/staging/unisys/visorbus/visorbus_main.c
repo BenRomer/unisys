@@ -951,7 +951,8 @@ visorbus_rearm_channel_interrupts(struct visor_device *dev)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
-	else if (!visor_periodic_work_nextperiod(dev->periodic_work))
+	/* DAK else */
+	if (!visor_periodic_work_nextperiod(dev->periodic_work))
 		put_device(&dev->device);
 }
 EXPORT_SYMBOL_GPL(visorbus_rearm_channel_interrupts);
@@ -963,8 +964,8 @@ visorbus_enable_channel_interrupts(struct visor_device *dev)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
-	else
-		dev_start_periodic_work(dev);
+	/* DAK else */
+	dev_start_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_enable_channel_interrupts);
 
@@ -975,8 +976,8 @@ visorbus_disable_channel_interrupts(struct visor_device *dev)
 		visorchannel_clear_sig_features(dev->visorchannel,
 						dev->recv_queue,
 						ULTRA_CHANNEL_ENABLE_INTS);
-	else
-		dev_stop_periodic_work(dev);
+	/* else */
+	dev_stop_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 
