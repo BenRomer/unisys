@@ -497,6 +497,15 @@ visorchannel_signalinsert(struct visorchannel *channel, u32 queue, void *msg)
 	bool rc;
 	unsigned long flags;
 
+	if (!channel) {
+		printk("DAK -- ERROR NO CHANNEL\n");
+		return false;
+	}
+	if (!msg) { 
+		printk("DAK -- NO MSG TO INSERT \n");
+		return false;
+	} 
+		
 	if (channel->needs_lock) {
 		spin_lock_irqsave(&channel->insert_lock, flags);
 		rc = signalinsert_inner(channel, queue, msg);
