@@ -747,6 +747,23 @@ dev_stop_periodic_work(struct visor_device *dev)
 		put_device(&dev->device);
 }
 
+int visorbus_set_channel_state(struct visor_device *dev, u32 cli_state)
+{
+	int channel_offset = 0, err = 0;
+
+	channel_offset = offsetof(struct channel_header, cli_state_os);
+
+	err = visorbus_write_channel(dev, channel_offset, &cli_state, 8);
+	if (err) {
+		dev_err(&dev->device,
+			"%s failed to set client_state_os from chan (%d)\n",
+			__func__, err);
+		return err;
+	}
+
+	return err;
+}
+
 /** This is called automatically upon adding a visor_device (device_add), or
  *  adding a visor_driver (visorbus_register_visor_driver), but only after
  *  visorbus_match has returned 1 to indicate a successful match between
@@ -779,6 +796,7 @@ visordriver_probe_device(struct device *xdev)
 		goto away;
 
 	fix_vbus_dev_info(dev);
+	visorbus_set_channel_state(dev, CHANNELCLI_OWNED);
 	up(&dev->visordriver_callback_lock);
 	rc = 0;
 away:
@@ -1091,6 +1109,8 @@ create_visor_device(struct visor_device *dev)
 	}
 
 	list_add_tail(&dev->list_all, &list_all_device_instances);
+
+	visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
 	return 0;
 
 away_register:
