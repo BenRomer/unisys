@@ -969,8 +969,7 @@ visorbus_rearm_channel_interrupts(struct visor_device *dev)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
-	/* DAK else */
-	if (!visor_periodic_work_nextperiod(dev->periodic_work))
+	else if (!visor_periodic_work_nextperiod(dev->periodic_work))
 		put_device(&dev->device);
 }
 EXPORT_SYMBOL_GPL(visorbus_rearm_channel_interrupts);
@@ -982,8 +981,8 @@ visorbus_enable_channel_interrupts(struct visor_device *dev)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
-	/* DAK else */
-	dev_start_periodic_work(dev);
+	else
+		dev_start_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_enable_channel_interrupts);
 
@@ -994,8 +993,8 @@ visorbus_disable_channel_interrupts(struct visor_device *dev)
 		visorchannel_clear_sig_features(dev->visorchannel,
 						dev->recv_queue,
 						ULTRA_CHANNEL_ENABLE_INTS);
-	/* else */
-	dev_stop_periodic_work(dev);
+	else
+		dev_stop_periodic_work(dev);
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 
@@ -1005,14 +1004,6 @@ visorbus_isr(int irq, void *dev_id)
 	struct visor_device *dev = (struct visor_device *)dev_id;
 	struct visor_driver *drv = to_visor_driver(dev->device.driver);
 
-	/* Disable the interrupt in hardware for this device.
-	 * When the device is done handling the interrupt, it has
-	 * the responsibility of re-arming the interrupt so the SP
-	 * can send another one.
-	 */
-	visorchannel_clear_sig_features(dev->visorchannel,
-					dev->recv_queue,
-					ULTRA_CHANNEL_ENABLE_INTS);
 	if (drv->channel_interrupt) {
 		drv->channel_interrupt(dev);
 		return IRQ_HANDLED;
@@ -1104,8 +1095,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 
 	dev_info(&dev->device, "IRQ=%d registered\n", irq);
 
-	err = visorbus_set_channel_features(dev, ULTRA_IO_DRIVER_ENABLES_INTS |
-					    ULTRA_IO_DRIVER_DISABLES_INTS);
+	err = visorbus_set_channel_features(dev, ULTRA_IO_DRIVER_ENABLES_INTS);
 	if (err) {
 		dev_err(&dev->device,
 			"%s failed to set ENALBES ints from chan (%d)\n",
@@ -1184,8 +1174,7 @@ create_visor_device(struct visor_device *dev)
 	 * wants to use interrupts, it's probe can call
 	 * visorbus_register_for_interrupts.
 	 */
-	rc = visorbus_set_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING |
-					   ULTRA_IO_DRIVER_DISABLES_INTS);
+	rc = visorbus_set_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING);
 	if (rc) {
 		dev_err(&dev->device,
 			"%s failed to set channel features for chan (%d)\n",
