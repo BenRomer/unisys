@@ -1085,7 +1085,8 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 		goto stay_in_polling;
 	}
 
-	err = request_irq(irq, visorbus_isr, IRQF_SHARED, dev->name, dev);
+	err = request_irq(irq, visorbus_isr, IRQF_SHARED,
+			  dev_name(&dev->device), dev);
 	if (err < 0) {
 		dev_err(&dev->device,
 			" failed to request irq, continuing to poll. err = %d",
