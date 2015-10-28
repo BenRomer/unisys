@@ -570,7 +570,6 @@ void
 visorchannel_clear_or_set_sig_features(struct visorchannel *channel,
 				       u32 queue, u64 features, bool is_set)
 {
-	unsigned int offset = SIG_QUEUE_OFFSET(&channel->chan_hdr, queue);
 	struct signal_queue_header sig_hdr;
 
 	if (!sig_read_header(channel, queue, &sig_hdr))
