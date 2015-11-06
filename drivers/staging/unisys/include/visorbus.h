@@ -178,6 +178,8 @@ int visorbus_registerdevnode(struct visor_device *dev,
 			     const char *name, int major, int minor);
 void visorbus_enable_channel_interrupts(struct visor_device *dev);
 void visorbus_disable_channel_interrupts(struct visor_device *dev);
+void visorbus_rearm_channel_interrupts(struct visor_device *dev);
+
 #endif
 
 /* Note that for visorchannel_create()
