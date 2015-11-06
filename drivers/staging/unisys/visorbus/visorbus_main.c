@@ -715,6 +715,13 @@ unregister_driver_attributes(struct visor_driver *drv)
 	driver_remove_file(&drv->driver, &drv->version_attr);
 }
 
+visorbus_rearm_channel_interrupts(struct visor_device *dev)
+{
+	if (!visor_periodic_work_nextperiod(dev->periodic_work))
+		put_device(&dev->device);
+}
+EXPORT_SYMBOL_GPL(visorbus_rearm_channel_interrupts);
+
 static void
 dev_periodic_work(void *xdev)
 {
@@ -725,8 +732,6 @@ dev_periodic_work(void *xdev)
 	if (drv->channel_interrupt)
 		drv->channel_interrupt(dev);
 	up(&dev->visordriver_callback_lock);
-	if (!visor_periodic_work_nextperiod(dev->periodic_work))
-		put_device(&dev->device);
 }
 
 static void
