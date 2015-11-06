@@ -1715,8 +1715,10 @@ static int visornic_poll(struct napi_struct *napi, int budget)
 	 * If there aren't any more packets to receive
 	 * stop the poll
 	 */
-	if (rx_count < budget)
+	if (rx_count < budget) {
 		napi_complete(napi);
+		visorbus_rearm_channel_interrupts(devdata->dev);
+	}
 
 	return rx_count;
 }
@@ -1737,6 +1739,8 @@ visornic_irq(struct visor_device *v)
 	if (!visorchannel_signalempty(devdata->dev->visorchannel,
 				      IOCHAN_FROM_IOPART))
 		napi_schedule(&devdata->napi);
+	else
+		visorbus_rearm_channel_interrupts(v);
 }
 
 /**
