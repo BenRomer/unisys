@@ -673,7 +673,7 @@ visorinput_channel_interrupt(struct visor_device *dev)
 		devdata_get(dev_get_drvdata(&dev->device));
 
 	if (!devdata)
-		return;
+		goto rearm_interrupts;
 
 	spin_lock(&devdata->lock_isr);
 	if (devdata->paused) /* don't touch device/channel when paused */
@@ -782,6 +782,9 @@ visorinput_channel_interrupt(struct visor_device *dev)
 out_locked:
 	devdata_put(devdata);
 	spin_unlock(&devdata->lock_isr);
+
+rearm_interrupts:
+	visorbus_rearm_channel_interrupts(dev);
 }
 
 static int
