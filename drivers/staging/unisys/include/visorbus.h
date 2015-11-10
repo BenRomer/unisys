@@ -162,6 +162,7 @@ struct visor_device {
 	int irq;
 	int wait_ms;
 	int recv_queue;		/* specifies which queue to receive msgs on */
+	bool irq_requested;     /* true iff request_irq() succeeded */
 };
 
 #define to_visor_device(x) container_of(x, struct visor_device, device)
@@ -181,6 +182,7 @@ int visorbus_registerdevnode(struct visor_device *dev,
 			     const char *name, int major, int minor);
 int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 					     u32 queue);
+int visorbus_unregister_for_channel_interrupts(struct visor_device *dev);
 void visorbus_enable_channel_interrupts(struct visor_device *dev);
 void visorbus_disable_channel_interrupts(struct visor_device *dev);
 void visorbus_rearm_channel_interrupts(struct visor_device *dev);
