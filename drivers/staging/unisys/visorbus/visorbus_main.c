@@ -723,10 +723,8 @@ dev_periodic_work(void *xdev)
 	struct visor_device *dev = xdev;
 	struct visor_driver *drv = to_visor_driver(dev->device.driver);
 
-	down(&dev->visordriver_callback_lock);
 	if (drv->channel_interrupt)
 		drv->channel_interrupt(dev);
-	up(&dev->visordriver_callback_lock);
 }
 
 static void
