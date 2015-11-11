@@ -274,7 +274,7 @@ visor_copy_fragsinfo_from_skb(struct sk_buff *skb, unsigned int firstfraglen,
 			 * half a packet in the I/O channel, panic here as this
 			 * should never happen
 			 */
-			BUG_ON(!count);
+			WARN_ON(!count);
 		}
 	}
 	if (skb_shinfo(skb)->frag_list) {
@@ -376,8 +376,8 @@ visornic_serverdown(struct visornic_devdata *devdata,
 			__func__);
 		spin_unlock_irqrestore(&devdata->priv_lock, flags);
 		return -EINVAL;
-	} else
-		spin_unlock_irqrestore(&devdata->priv_lock, flags);
+	}
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 	return 0;
 }
 
@@ -437,8 +437,8 @@ post_skb(struct uiscmdrsp *cmdrsp,
 		cmdrsp->net.type = NET_RCV_POST;
 		cmdrsp->cmdtype = CMD_NET_TYPE;
 		if (visorchannel_signalinsert(devdata->dev->visorchannel,
-					  IOCHAN_TO_IOPART,
-					  cmdrsp)) {
+					      IOCHAN_TO_IOPART,
+					      cmdrsp)) {
 			atomic_inc(&devdata->num_rcvbuf_in_iovm);
 			devdata->chstat.sent_post++;
 		} else {
@@ -466,8 +466,8 @@ send_enbdis(struct net_device *netdev, int state,
 	devdata->cmdrsp_rcv->net.type = NET_RCV_ENBDIS;
 	devdata->cmdrsp_rcv->cmdtype = CMD_NET_TYPE;
 	if (visorchannel_signalinsert(devdata->dev->visorchannel,
-				  IOCHAN_TO_IOPART,
-				  devdata->cmdrsp_rcv))
+				      IOCHAN_TO_IOPART,
+				      devdata->cmdrsp_rcv))
 		devdata->chstat.sent_enbdis++;
 }
 
@@ -1218,8 +1218,9 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 		/* length rcvd is greater than firstfrag in this skb rcv buf  */
 		skb->tail += RCVPOST_BUF_SIZE;	/* amount in skb->data */
 		skb->data_len = skb->len - RCVPOST_BUF_SIZE;	/* amount that
-								   will be in
-								   frag_list */
+								 *  will be in
+								 * frag_list
+								 */
 	} else {
 		/* data fits in this skb - no chaining - do
 		 * PRECAUTIONARY check
@@ -1315,12 +1316,14 @@ visornic_rx(struct uiscmdrsp *cmdrsp)
 				}
 				if (found_mc)
 					break;	/* accept packet, dest
-						   matches a multicast
-						   address */
+						 * matches a multicast
+						 * address
+						 */
 			}
 		} else if (skb->pkt_type == PACKET_HOST) {
 			break;	/* accept packet, h_dest must match vnic
-				   mac address */
+				 *  mac address
+				 */
 		} else if (skb->pkt_type == PACKET_OTHERHOST) {
 			/* something is not right */
 			dev_err(&devdata->netdev->dev,
@@ -1619,7 +1622,8 @@ service_resp_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata,
 	struct net_device *netdev;
 
 	/* TODO: CLIENT ACQUIRE -- Don't really need this at the
-	 * moment */
+	 * moment
+	 */
 	for (;;) {
 		if (!visorchannel_signalremove(devdata->dev->visorchannel,
 					       IOCHAN_FROM_IOPART,
@@ -1647,7 +1651,7 @@ service_resp_queue(struct uiscmdrsp *cmdrsp, struct visornic_devdata *devdata,
 				 * netif_wake_queue()
 				 */
 				if (vnic_hit_low_watermark(devdata,
-					devdata->lower_threshold_net_xmits)) {
+				    devdata->lower_threshold_net_xmits)) {
 					/* enough NET_XMITs completed
 					 * so can restart netif queue
 					 */
@@ -1742,7 +1746,6 @@ poll_for_irq(unsigned long v)
 	atomic_set(&devdata->interrupt_rcvd, 0);
 
 	mod_timer(&devdata->irq_poll_timer, msecs_to_jiffies(2));
-
 }
 
 /**
