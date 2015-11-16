@@ -723,6 +723,14 @@ dev_periodic_work(void *xdev)
 	struct visor_device *dev = xdev;
 	struct visor_driver *drv = to_visor_driver(dev->device.driver);
 
+	/*
+	 * Note that channel_interrupt() is called withOUT
+	 * visordriver_callback_lock(), unlike the other callbacks.  This both
+	 * makes the behavior consistent between polling versus NON-polling
+	 * modes, and enables us to handle I/Os while in the function driver's
+	 * probe() function, which is necessary particularly for the
+	 * scsi_scan_host() call in the visorhba case.
+	 */
 	if (drv->channel_interrupt)
 		drv->channel_interrupt(dev);
 }
@@ -734,8 +742,10 @@ dev_start_periodic_work(struct visor_device *dev)
 		return;
 	/* now up by at least 2 */
 	get_device(&dev->device);
-	if (!visor_periodic_work_start(dev->periodic_work))
+	if (!visor_periodic_work_start(dev->periodic_work)) {
+		dev_err(&dev->device, "%s failed\n", __func__);
 		put_device(&dev->device);
+	}
 }
 
 static void
@@ -786,13 +796,18 @@ visordriver_probe_device(struct device *xdev)
 	get_device(&dev->device);
 	visorbus_set_channel_state(dev, CHANNELCLI_OWNED);
 	if (!drv->probe) {
+		dev_err(xdev, "%s function driver provide no probe()\n",
+			__func__);
 		up(&dev->visordriver_callback_lock);
 		rc = -1;
 		goto away;
 	}
 	rc = drv->probe(dev);
-	if (rc < 0)
+	if (rc < 0) {
+		dev_err(xdev, "%s function driver probe() errored\n",
+			__func__);
 		goto away;
+	}
 
 	fix_vbus_dev_info(dev);
 	up(&dev->visordriver_callback_lock);
@@ -830,6 +845,7 @@ visordriver_remove_device(struct device *xdev)
 	}
 	up(&dev->visordriver_callback_lock);
 	dev_stop_periodic_work(dev);
+	visorbus_unregister_for_channel_interrupts(dev);
 	devmajorminor_remove_all_files(dev);
 
 	visorbus_set_channel_state(dev, CHANNELCLI_ATTACHED);
@@ -964,7 +980,7 @@ EXPORT_SYMBOL_GPL(visorbus_registerdevnode);
 void
 visorbus_rearm_channel_interrupts(struct visor_device *dev)
 {
-	if (dev->irq)
+	if (dev->irq_requested)
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
@@ -976,24 +992,30 @@ EXPORT_SYMBOL_GPL(visorbus_rearm_channel_interrupts);
 void
 visorbus_enable_channel_interrupts(struct visor_device *dev)
 {
-	if (dev->irq)
+	if (dev->irq_requested) {
+		dev_dbg(&dev->device, "%s real interrupts\n", __func__);
 		visorchannel_set_sig_features(dev->visorchannel,
 					      dev->recv_queue,
 					      ULTRA_CHANNEL_ENABLE_INTS);
-	else
+	} else {
+		dev_dbg(&dev->device, "%s polling\n", __func__);
 		dev_start_periodic_work(dev);
+	}
 }
 EXPORT_SYMBOL_GPL(visorbus_enable_channel_interrupts);
 
 void
 visorbus_disable_channel_interrupts(struct visor_device *dev)
 {
-	if (!dev->irq)
+	if (!dev->irq_requested) {
+		dev_dbg(&dev->device, "%s real interrupts\n", __func__);
 		visorchannel_clear_sig_features(dev->visorchannel,
 						dev->recv_queue,
 						ULTRA_CHANNEL_ENABLE_INTS);
-	else
+	} else {
+		dev_dbg(&dev->device, "%s polling\n", __func__);
 		dev_stop_periodic_work(dev);
+	}
 }
 EXPORT_SYMBOL_GPL(visorbus_disable_channel_interrupts);
 
@@ -1074,6 +1096,32 @@ int visorbus_clear_channel_features(struct visor_device *dev, u64 feature_bits)
 	return err;
 }
 
+int visorbus_unregister_for_channel_interrupts(struct visor_device *dev)
+{
+	int err = 0;
+
+	if (dev->irq_requested) {
+		free_irq(dev->irq, dev);
+		dev->irq_requested = false;
+	}
+	err = visorbus_set_channel_features(dev, ULTRA_IO_CHANNEL_IS_POLLING);
+	if (err) {
+		dev_err(&dev->device,
+			"%s failed to set polling flag from chan (%d)\n",
+			__func__, err);
+	}
+	err = visorbus_clear_channel_features(dev,
+					      ULTRA_IO_DRIVER_ENABLES_INTS |
+					      ULTRA_IO_DRIVER_DISABLES_INTS);
+	if (err) {
+		dev_err(&dev->device,
+			"%s failed to clear enable ints from chan (%d)\n",
+			__func__, err);
+	}
+	return 0;
+}
+EXPORT_SYMBOL_GPL(visorbus_unregister_for_channel_interrupts);
+
 #define INTERRUPT_VECTOR_MASK 0x3f
 int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 					     u32 queue)
@@ -1093,6 +1141,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 	}
 
 	dev_info(&dev->device, "IRQ=%d registered\n", dev->irq);
+	dev->irq_requested = true;
 
 	err = visorbus_set_channel_features(dev, ULTRA_IO_DRIVER_ENABLES_INTS |
 					    ULTRA_IO_DRIVER_DISABLES_INTS);
@@ -1116,7 +1165,7 @@ int visorbus_register_for_channel_interrupts(struct visor_device *dev,
 	return 0;
 
 stay_in_polling:
-	dev->irq = 0;
+	visorbus_unregister_for_channel_interrupts(dev);
 	return err;
 }
 EXPORT_SYMBOL_GPL(visorbus_register_for_channel_interrupts);
