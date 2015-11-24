@@ -274,7 +274,7 @@ visor_copy_fragsinfo_from_skb(struct sk_buff *skb, unsigned int firstfraglen,
 			 * half a packet in the I/O channel, panic here as this
 			 * should never happen
 			 */
-			BUG_ON(!count);
+			WARN_ON(!count);
 		}
 	}
 	if (skb_shinfo(skb)->frag_list) {
