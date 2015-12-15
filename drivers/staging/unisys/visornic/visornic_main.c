@@ -730,6 +730,7 @@ call_serverdown:
 static int
 visornic_open(struct net_device *netdev)
 {
+	dev_err(&netdev->dev, "could not get GPH1\n");\
 	visornic_enable_with_timeout(netdev, VISORNIC_INFINITE_RSP_WAIT);
 
 	return 0;
