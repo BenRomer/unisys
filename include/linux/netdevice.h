@@ -3995,7 +3995,7 @@ do {								\
 	netif_level(info, priv, type, dev, fmt, ##args)
 
 #if defined(CONFIG_DYNAMIC_DEBUG)
-#define netif_dbg(priv, type, netdev, format, args...)		\
+#define netif_dbg(priv, type, netdev, format, args...)         \
 do {								\
 	if (netif_msg_##type(priv))				\
 		dynamic_netdev_dbg(netdev, format, ##args);	\

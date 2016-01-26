@@ -110,6 +110,10 @@ struct chanstat {
 };
 
 struct visornic_devdata {
+	unsigned short offline;		/* Flag to determine if linux thinks 
+					 * device should be offline, not hw
+					 * state.
+					 */ 
 	unsigned short enabled;		/* 0 disabled 1 enabled to receive */
 	unsigned short enab_dis_acked;	/* NET_RCV_ENABLE/DISABLE acked by
 					 * IOPART
@@ -535,13 +539,15 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 				break;
 		}
 	}
-	/* we've set enabled to 0, so we can give up the lock. */
-	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
+	if(netif_running(netdev))
+		napi_synchronize(&devdata->napi);
 	/* stop the transmit queue so nothing more can be transmitted */
 	netif_stop_queue(netdev);
 
+	devdata->offline = 1;
 	napi_disable(&devdata->napi);
+
 
 	skb_queue_purge(&devdata->xmitbufhead);
 
@@ -554,6 +560,7 @@ visornic_disable_with_timeout(struct net_device *netdev, const int timeout)
 			devdata->rcvbuf[i] = NULL;
 		}
 	}
+	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
 	return 0;
 }
@@ -640,12 +647,14 @@ visornic_enable_with_timeout(struct net_device *netdev, const int timeout)
 	 * an ACK back from uisnic, we'll drop the packets
 	 */
 	devdata->n_rcv_packets_not_accepted = 0;
+
+	napi_enable(&devdata->napi);
+	devdata->offline = 0;
 	spin_unlock_irqrestore(&devdata->priv_lock, flags);
 
 	/* send enable and wait for ack -- don't hold lock when sending enable
 	 * because if the queue is full, insert might sleep.
 	 */
-	napi_enable(&devdata->napi);
 	send_enbdis(netdev, 1, devdata);
 
 	spin_lock_irqsave(&devdata->priv_lock, flags);
@@ -1739,6 +1748,11 @@ static void
 poll_for_irq(unsigned long v)
 {
 	struct visornic_devdata *devdata = (struct visornic_devdata *)v;
+
+	if (devdata->offline) {
+		mod_timer(&devdata->irq_poll_timer, msecs_to_jiffies(2));
+		return;
+	}
 
 	if (!visorchannel_signalempty(
 				   devdata->dev->visorchannel,
