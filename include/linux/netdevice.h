@@ -407,6 +407,7 @@ static inline bool napi_disable_pending(struct napi_struct *n)
  */
 static inline bool napi_schedule_prep(struct napi_struct *n)
 {
+	//printk(KERN_WARNING "EEEEE netdevice.h 410 test_and_set_bit napi_schedule_prep  \n");
 	return !napi_disable_pending(n) &&
 		!test_and_set_bit(NAPI_STATE_SCHED, &n->state);
 }
@@ -432,6 +433,7 @@ static inline void napi_schedule(struct napi_struct *n)
  */
 static inline void napi_schedule_irqoff(struct napi_struct *n)
 {
+	printk(KERN_WARN "DAK Napi_Schedule_irqoff\n");
 	if (napi_schedule_prep(n))
 		__napi_schedule_irqoff(n);
 }
@@ -439,6 +441,7 @@ static inline void napi_schedule_irqoff(struct napi_struct *n)
 /* Try to reschedule poll. Called by dev->poll() after napi_complete().  */
 static inline bool napi_reschedule(struct napi_struct *napi)
 {
+	printk(KERN_WARN "DAK Napi_reschedule\n");
 	if (napi_schedule_prep(napi)) {
 		__napi_schedule(napi);
 		return true;
@@ -504,7 +507,9 @@ void napi_disable(struct napi_struct *n);
  */
 static inline void napi_enable(struct napi_struct *n)
 {
-	BUG_ON(!test_bit(NAPI_STATE_SCHED, &n->state));
+	//printk(KERN_WARNING "EEEEE Netdevice.h 507 !test_bit napi_enable BUG_ON\n");
+	WARN_ON(!test_bit(NAPI_STATE_SCHED, &n->state));
+	printk(KERN_WARNING "EEEEE Netdevice.h 509 clear_bit napi_enable NAPI_STATE_SCHED && NAPI_STATE_NPSVC \n");
 	smp_mb__before_atomic();
 	clear_bit(NAPI_STATE_SCHED, &n->state);
 	clear_bit(NAPI_STATE_NPSVC, &n->state);

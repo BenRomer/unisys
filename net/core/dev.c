@@ -3508,6 +3508,7 @@ enqueue:
 		 * We can use non atomic operation since we own the queue lock
 		 */
 		if (!__test_and_set_bit(NAPI_STATE_SCHED, &sd->backlog.state)) {
+			printk(KERN_WARNING "EEEEE dev.c 3510 !__test_and_set_bit enque_in_backlog if\n");
 			if (!rps_ipi_queued(sd))
 				____napi_schedule(sd, &sd->backlog);
 		}
@@ -4621,6 +4622,7 @@ void __napi_complete(struct napi_struct *n)
 	BUG_ON(!test_bit(NAPI_STATE_SCHED, &n->state));
 
 	list_del_init(&n->poll_list);
+	 printk(KERN_WARNING "EEEEE dev.c 4625 clear_bit __napi_complete \n");
 	smp_mb__before_atomic();
 	clear_bit(NAPI_STATE_SCHED, &n->state);
 }
@@ -4650,10 +4652,12 @@ void napi_complete_done(struct napi_struct *n, int work_done)
 			napi_gro_flush(n, false);
 	}
 	if (likely(list_empty(&n->poll_list))) {
+	//	 printk(KERN_WARNING "EEEEE dev.c 4653 napi_complete_done likely(list)empty(... \n");
 		WARN_ON_ONCE(!test_and_clear_bit(NAPI_STATE_SCHED, &n->state));
 	} else {
 		/* If n->poll_list is not empty, we need to mask irqs */
 		local_irq_save(flags);
+		printk(KERN_WARNING "EEEEE dev.c 4653 npoll_not_empty mask irqs  \n");
 		__napi_complete(n);
 		local_irq_restore(flags);
 	}
@@ -4743,6 +4747,7 @@ void netif_napi_add(struct net_device *dev, struct napi_struct *napi,
 	spin_lock_init(&napi->poll_lock);
 	napi->poll_owner = -1;
 #endif
+	 printk(KERN_WARNING "EEEEE dev.c 4746 set_bit netif_napi_add \n");
 	set_bit(NAPI_STATE_SCHED, &napi->state);
 }
 EXPORT_SYMBOL(netif_napi_add);
@@ -4750,10 +4755,14 @@ EXPORT_SYMBOL(netif_napi_add);
 void napi_disable(struct napi_struct *n)
 {
 	might_sleep();
+	 printk(KERN_WARNING "EEEEE ADDITIONAL dev.c 4755 napi_disable set_bit  NAPI_STATE_DISABLE\n");
 	set_bit(NAPI_STATE_DISABLE, &n->state);
 
 	while (test_and_set_bit(NAPI_STATE_SCHED, &n->state))
+		{
+	printk(KERN_WARNING "EEEEE dev.c 4755 napi_disable test_and_set while  NAPI_STATE_SCHED\n");
 		msleep(1);
+		}
 	while (test_and_set_bit(NAPI_STATE_NPSVC, &n->state))
 		msleep(1);
 

@@ -794,6 +794,7 @@ again:
 	received += virtnet_receive(rq, budget);
 
 	r = virtqueue_enable_cb_prepare(rq->vq);
+	printk(KERN_WARNING "EEEEE virtio_net.c 797 clear_bit virtnet_busy_poll\n");
 	clear_bit(NAPI_STATE_SCHED, &napi->state);
 	if (unlikely(virtqueue_poll(rq->vq, r)) &&
 	    napi_schedule_prep(napi)) {
