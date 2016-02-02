@@ -2,9 +2,9 @@
 # Makefile for Unisys channel
 #
 
-obj-$(CONFIG_UNISYS_VISORHBA)	+= visorhba.o
+obj-m	+= visorhba.o
 
 visorhba-y := visorhba_main.o
 
-ccflags-y += -Idrivers/staging/unisys/include
+ccflags-y += -I$(src)/../include
 
