@@ -400,21 +400,13 @@ parser_init_byte_stream(u64 addr, u32 bytes, bool local, bool *retry)
 		p = __va((unsigned long) (addr));
 		memcpy(ctx->data, p, bytes);
 	} else {
-		void __iomem *mapping;
-
-		if (!request_mem_region(addr, bytes, "visorchipset")) {
-			rc = NULL;
-			goto cleanup;
-		}
-
-		mapping = ioremap_cache(addr, bytes);
+		void __iomem *mapping = ioremap_cache(addr, bytes);
 		if (!mapping) {
-			release_mem_region(addr, bytes);
 			rc = NULL;
 			goto cleanup;
 		}
 		memcpy_fromio(ctx->data, mapping, bytes);
-		release_mem_region(addr, bytes);
+		iounmap(mapping);
 	}
 
 	ctx->byte_stream = true;
