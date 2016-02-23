@@ -910,7 +910,6 @@ save_crash_message(struct controlvm_message *msg, enum crash_obj_type typ)
 					 POSTCODE_SEVERITY_ERR);
 			return;
 		}
-
 	}
 }
 
