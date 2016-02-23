@@ -402,6 +402,7 @@ parser_init_byte_stream(u64 addr, u32 bytes, bool local, bool *retry)
 		memcpy(ctx->data, p, bytes);
 	} else {
 		void __iomem *mapping = ioremap_cache(addr, bytes);
+
 		if (!mapping) {
 			rc = NULL;
 			goto cleanup;
