@@ -118,7 +118,7 @@ static struct visorchannel *controlvm_channel;
 
 /* Manages the request payload in the controlvm channel */
 struct visor_controlvm_payload_info {
-	u8 *ptr;		/* pointer to base address of payload pool */
+	u8 __iomem *ptr;	/* pointer to base address of payload pool */
 	u64 offset;		/* offset from beginning of controlvm
 				 * channel to beginning of payload * pool
 				 */
@@ -401,14 +401,14 @@ parser_init_byte_stream(u64 addr, u32 bytes, bool local, bool *retry)
 		p = __va((unsigned long)(addr));
 		memcpy(ctx->data, p, bytes);
 	} else {
-		void *mapping = memremap(addr, bytes, MEMREMAP_WB);
+		void __iomem *mapping = ioremap_cache(addr, bytes);
 
 		if (!mapping) {
 			rc = NULL;
 			goto cleanup;
 		}
-		memcpy(ctx->data, mapping, bytes);
-		memunmap(mapping);
+		memcpy_fromio(ctx->data, mapping, bytes);
+		iounmap(mapping);
 	}
 
 	ctx->byte_stream = true;
@@ -1382,7 +1382,7 @@ static int
 initialize_controlvm_payload_info(u64 phys_addr, u64 offset, u32 bytes,
 				  struct visor_controlvm_payload_info *info)
 {
-	u8 *payload = NULL;
+	u8 __iomem *payload = NULL;
 	int rc = CONTROLVM_RESP_SUCCESS;
 
 	if (!info) {
@@ -1394,7 +1394,7 @@ initialize_controlvm_payload_info(u64 phys_addr, u64 offset, u32 bytes,
 		rc = -CONTROLVM_RESP_ERROR_PAYLOAD_INVALID;
 		goto cleanup;
 	}
-	payload = memremap(phys_addr + offset, bytes, MEMREMAP_WB);
+	payload = ioremap_cache(phys_addr + offset, bytes);
 	if (!payload) {
 		rc = -CONTROLVM_RESP_ERROR_IOREMAP_FAILED;
 		goto cleanup;
@@ -1407,7 +1407,7 @@ initialize_controlvm_payload_info(u64 phys_addr, u64 offset, u32 bytes,
 cleanup:
 	if (rc < 0) {
 		if (payload) {
-			memunmap(payload);
+			iounmap(payload);
 			payload = NULL;
 		}
 	}
@@ -1418,7 +1418,7 @@ static void
 destroy_controlvm_payload_info(struct visor_controlvm_payload_info *info)
 {
 	if (info->ptr) {
-		memunmap(info->ptr);
+		iounmap(info->ptr);
 		info->ptr = NULL;
 	}
 	memset(info, 0, sizeof(struct visor_controlvm_payload_info));

@@ -36,7 +36,7 @@ static const uuid_le spar_video_guid = SPAR_CONSOLEVIDEO_CHANNEL_PROTOCOL_GUID;
 struct visorchannel {
 	u64 physaddr;
 	ulong nbytes;
-	void *mapped;
+	void __iomem *mapped;
 	bool requested;
 	struct channel_header chan_hdr;
 	uuid_le guid;
@@ -93,7 +93,7 @@ visorchannel_create_guts(u64 physaddr, unsigned long channel_bytes,
 		}
 	}
 
-	channel->mapped = memremap(physaddr, size, MEMREMAP_WB);
+	channel->mapped = ioremap_cache(physaddr, size);
 	if (!channel->mapped) {
 		release_mem_region(physaddr, size);
 		goto cleanup;
@@ -113,7 +113,7 @@ visorchannel_create_guts(u64 physaddr, unsigned long channel_bytes,
 	if (uuid_le_cmp(guid, NULL_UUID_LE) == 0)
 		guid = channel->chan_hdr.chtype;
 
-	memunmap(channel->mapped);
+	iounmap(channel->mapped);
 	if (channel->requested)
 		release_mem_region(channel->physaddr, channel->nbytes);
 	channel->mapped = NULL;
@@ -126,8 +126,7 @@ visorchannel_create_guts(u64 physaddr, unsigned long channel_bytes,
 		}
 	}
 
-	channel->mapped = memremap(channel->physaddr, channel_bytes,
-			MEMREMAP_WB);
+	channel->mapped = ioremap_cache(channel->physaddr, channel_bytes);
 	if (!channel->mapped) {
 		release_mem_region(channel->physaddr, channel_bytes);
 		goto cleanup;
@@ -168,7 +167,7 @@ visorchannel_destroy(struct visorchannel *channel)
 	if (!channel)
 		return;
 	if (channel->mapped) {
-		memunmap(channel->mapped);
+		iounmap(channel->mapped);
 		if (channel->requested)
 			release_mem_region(channel->physaddr, channel->nbytes);
 	}
@@ -242,7 +241,7 @@ visorchannel_read(struct visorchannel *channel, ulong offset,
 	if (offset + nbytes > channel->nbytes)
 		return -EIO;
 
-	memcpy(local, channel->mapped + offset, nbytes);
+	memcpy_fromio(local, channel->mapped + offset, nbytes);
 
 	return 0;
 }
@@ -264,7 +263,7 @@ visorchannel_write(struct visorchannel *channel, ulong offset,
 		       local, copy_size);
 	}
 
-	memcpy(channel->mapped + offset, local, nbytes);
+	memcpy_toio(channel->mapped + offset, local, nbytes);
 
 	return 0;
 }
