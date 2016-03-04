@@ -990,6 +990,7 @@ bus_epilog(struct visor_device *bus_info,
 		bus_info->pending_msg_hdr = pmsg_hdr;
 	}
 
+away:
 	down(&notifier_lock);
 	if (response == CONTROLVM_RESP_SUCCESS) {
 		switch (cmd) {
@@ -1007,7 +1008,6 @@ bus_epilog(struct visor_device *bus_info,
 			break;
 		}
 	}
-away:
 	if (notified)
 		/* The callback function just called above is responsible
 		 * for calling the appropriate visorchipset_busdev_responders
